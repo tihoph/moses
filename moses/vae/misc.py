@@ -1,10 +1,19 @@
+from __future__ import annotations
+
 import math
+from typing import TYPE_CHECKING
 
 from torch.optim.lr_scheduler import _LRScheduler
+from typing_extensions import override
+
+if TYPE_CHECKING:
+    import torch
+
+    from .config import VAEConfig
 
 
 class KLAnnealer:
-    def __init__(self, n_epoch, config):
+    def __init__(self, n_epoch: int, config: VAEConfig) -> None:
         self.i_start = config.kl_start
         self.w_start = config.kl_w_start
         self.w_max = config.kl_w_end
@@ -12,13 +21,13 @@ class KLAnnealer:
 
         self.inc = (self.w_max - self.w_start) / (self.n_epoch - self.i_start)
 
-    def __call__(self, i):
+    def __call__(self, i: int) -> float:
         k = (i - self.i_start) if i >= self.i_start else 0
         return self.w_start + k * self.inc
 
 
 class CosineAnnealingLRWithRestart(_LRScheduler):
-    def __init__(self, optimizer, config):
+    def __init__(self, optimizer: torch.optim.Optimizer, config: VAEConfig) -> None:
         self.n_period = config.lr_n_period
         self.n_mult = config.lr_n_mult
         self.lr_end = config.lr_end
@@ -29,7 +38,8 @@ class CosineAnnealingLRWithRestart(_LRScheduler):
         # Also calls first epoch
         super().__init__(optimizer, -1)
 
-    def get_lr(self):
+    @override
+    def get_lr(self) -> list[float]:  # type: ignore[override]
         return [
             self.lr_end
             + (base_lr - self.lr_end)
@@ -38,7 +48,8 @@ class CosineAnnealingLRWithRestart(_LRScheduler):
             for base_lr in self.base_lrs
         ]
 
-    def step(self, epoch=None):
+    @override
+    def step(self, epoch: int | None = None) -> None:
         if epoch is None:
             epoch = self.last_epoch + 1
         self.last_epoch = epoch

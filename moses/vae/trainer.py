@@ -1,32 +1,55 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 import torch
-import torch.optim as optim
-from torch.nn.utils import clip_grad_norm_
+from torch import optim
+from torch.nn.utils import clip_grad_norm_  # type: ignore[attr-defined]
 from tqdm.auto import tqdm
+from typing_extensions import override
 
 from moses.interfaces import MosesTrainer
 from moses.utils import CircularBuffer, Logger, OneHotVocab
 from moses.vae.misc import CosineAnnealingLRWithRestart, KLAnnealer
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator, Sequence
+
+    import numpy as np
+    from numpy.typing import NDArray
+    from torch.nn.parameter import Parameter
+    from torch.utils.data import DataLoader
+
+    from .config import VAEConfig
+    from .model import VAE
+
 
 class VAETrainer(MosesTrainer):
-    def __init__(self, config):
+    def __init__(self, config: VAEConfig) -> None:
         self.config = config
 
-    def get_vocabulary(self, data):
+    @override
+    def get_vocabulary(self, data: NDArray[np.str_] | Sequence[str]) -> OneHotVocab:
         return OneHotVocab.from_data(data)
 
-    def get_collate_fn(self, model):
+    @override
+    def get_collate_fn(self, model: VAE) -> Callable[[list[str]], list[torch.Tensor]]:  # type: ignore[override]
         device = self.get_collate_device(model)
 
-        def collate(data):
+        def collate(data: list[str]) -> list[torch.Tensor]:
             data.sort(key=len, reverse=True)
-            tensors = [model.string2tensor(string, device=device) for string in data]
-
-            return tensors
+            return [model.string2tensor(string, device=device) for string in data]
 
         return collate
 
-    def _train_epoch(self, model, epoch, tqdm_data, kl_weight, optimizer=None):
+    def _train_epoch(
+        self,
+        model: VAE,
+        epoch: int,
+        tqdm_data: tqdm[Sequence[torch.Tensor]],
+        kl_weight: float,
+        optimizer: torch.optim.Optimizer | None = None,
+    ) -> dict[str, Any]:
         if optimizer is None:
             model.eval()
         else:
@@ -35,17 +58,20 @@ class VAETrainer(MosesTrainer):
         kl_loss_values = CircularBuffer(self.config.n_last)
         recon_loss_values = CircularBuffer(self.config.n_last)
         loss_values = CircularBuffer(self.config.n_last)
+
+        result: dict[str, Any] | None = None
         for input_batch in tqdm_data:
             input_batch = tuple(data.to(model.device) for data in input_batch)
 
             # Forward
-            kl_loss, recon_loss = model(input_batch)
-            loss = kl_weight * kl_loss + recon_loss
+            var_output: tuple[torch.Tensor, torch.Tensor] = model(input_batch)
+            kl_loss, recon_loss = var_output
+            loss: torch.Tensor = kl_weight * kl_loss + recon_loss  # type: ignore[assignment]
 
             # Backward
             if optimizer is not None:
                 optimizer.zero_grad()
-                loss.backward()
+                loss.backward()  # type: ignore[no-untyped-call]
                 clip_grad_norm_(self.get_optim_params(model), self.config.clip_grad)
                 optimizer.step()
 
@@ -67,22 +93,29 @@ class VAETrainer(MosesTrainer):
             ]
             tqdm_data.set_postfix_str(" ".join(postfix))
 
-        postfix = {
-            "epoch": epoch,
-            "kl_weight": kl_weight,
-            "lr": lr,
-            "kl_loss": kl_loss_value,
-            "recon_loss": recon_loss_value,
-            "loss": loss_value,
-            "mode": "Eval" if optimizer is None else "Train",
-        }
+            result = {
+                "epoch": epoch,
+                "kl_weight": kl_weight,
+                "lr": lr,
+                "kl_loss": kl_loss_value,
+                "recon_loss": recon_loss_value,
+                "loss": loss_value,
+                "mode": "Eval" if optimizer is None else "Train",
+            }
+        if result is None:
+            raise RuntimeError("No result was returned")
+        return result
 
-        return postfix
-
-    def get_optim_params(self, model):
+    def get_optim_params(self, model: VAE) -> Generator[Parameter]:
         return (p for p in model.vae.parameters() if p.requires_grad)
 
-    def _train(self, model, train_loader, val_loader=None, logger=None):
+    def _train(
+        self,
+        model: VAE,
+        train_loader: DataLoader[str],
+        val_loader: DataLoader[str] | None = None,
+        logger: Logger | None = None,
+    ) -> None:
         device = model.device
         n_epoch = self._n_epoch()
 
@@ -118,7 +151,13 @@ class VAETrainer(MosesTrainer):
             # Epoch end
             lr_annealer.step()
 
-    def fit(self, model, train_data, val_data=None):
+    @override
+    def fit(  # type: ignore[override]
+        self,
+        model: VAE,
+        train_data: NDArray[np.str_] | Sequence[str],
+        val_data: NDArray[np.str_] | Sequence[str] | None = None,
+    ) -> VAE:
         logger = Logger() if self.config.log_file is not None else None
 
         train_loader = self.get_dataloader(model, train_data, shuffle=True)
@@ -129,7 +168,7 @@ class VAETrainer(MosesTrainer):
         self._train(model, train_loader, val_loader, logger)
         return model
 
-    def _n_epoch(self):
+    def _n_epoch(self) -> int:
         return sum(
             self.config.lr_n_period * (self.config.lr_n_mult**i)
             for i in range(self.config.lr_n_restarts)
