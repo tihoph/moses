@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "molsets"
+version = "1.0"
+description = "Molecular Sets (MOSES): A Benchmarking Platform for Molecular Generation Models"
+authors = [{ name = "Insilico Medicine", email = "moses@insilico.com" }]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = [
+    "pomegranate <1.0", # install via conda if build issues
+    "joblib <1.0",
+    "tqdm >=4.26.0",
+    "matplotlib >=3.0.0",
+    "numpy >=1.15, <2.0",
+    "pandas >=0.25, <2.0",
+    "scikit-learn",
+    "scipy >=1.1.0",
+    "torch >=1.1.0, <2.0",
+    "rdkit",
+    "fcd_torch >=1.0.5",
+    "seaborn >=0.9.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["moses*"]
+namespaces = false
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+disable_error_code = "import-untyped"
+enable_error_code = """type-arg,no-untyped-def,redundant-cast,redundant-self,comparison-overlap,
+                    no-untyped-call,no-any-return,no-any-unimported,unreachable,deprecated,redundant-expr,
+                    possibly-undefined,truthy-bool,truthy-iterable,ignore-without-code,
+                    unused-awaitable,unused-ignore,explicit-override,unimported-reveal,mutable-override,unimported-reveal,explicit-any"""
+
+# untyped definitions and calls
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+
+# configuring warnings
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_return_any = true
+warn_unreachable = true
+
+exclude = ["build", "docs"]
+
+local_partial_types = true
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN",
+    "B007",    # loop variable not used
+    "ARG001",  # unused function argument
+    "ARG002",  # unused method argument
+    "ARG004",  # unused static method argument
+    "FIX002",  # contains TODO
+    "TD002",   # missing TODO author
+    "TD003",   # missing TODO link
+    "T201",    # print used
+    "PLR2004", # magic value
+    "S101",    # use of "assert"
+    "UP",      # format strings
+    "D",       # docstring
+    "N8",      # case of variable names
+    "FBT0",    # boolean as positional argument
+    "EM1",     # strings in exception
+    "NPY002",  # legacy np random seed
+    "COM812",  # no trailing comma
+    "E741",    # ambiguous variable name
+    "C901",    # too complex
+    "PD901",   # generic df name
+    "PD010",   # pivot_table is preferred
+    "PLR0911", # too many return statements
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments
+    "PLR0915", # too many statements
+    "PLW2901", # loop var overwritten
+    "PTH1",    # open() should be replaced
+    "PT009",   # use regular "assert"
+    "TRY003",  # long message in exception
+    "INP001",  # add __init__.py to package
+]
