@@ -1,14 +1,43 @@
+from __future__ import annotations
+
 import argparse
 import random
 import re
+from argparse import _ActionsContainer
 
 import numpy as np
 import pandas as pd
 import torch
 
 
-def add_common_arg(parser):
-    def torch_device(arg):
+class CommonConfig(argparse.Namespace):
+    device: str
+    seed: int
+
+
+class TrainConfig(CommonConfig):
+    train_load: str | None
+    val_load: str | None
+    model_save: str
+    save_frequency: int
+    log_file: str
+    config_save: str
+    vocab_save: str | None
+    vocab_load: str | None
+
+
+class SampleConfig(CommonConfig):
+    model_load: str
+    config_load: str
+    vocab_load: str
+    n_samples: int
+    gen_save: str
+    n_batch: int
+    max_len: int
+
+
+def add_common_arg(parser: _ActionsContainer) -> _ActionsContainer:
+    def torch_device(arg: str) -> str:
         if re.match("^(cuda(:[0-9]+)?|cpu)$", arg) is None:
             raise argparse.ArgumentTypeError("Wrong device format: {}".format(arg))
 
@@ -34,7 +63,7 @@ def add_common_arg(parser):
     return parser
 
 
-def add_train_args(parser):
+def add_train_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     # Common
     common_arg = parser.add_argument_group("Common")
     add_common_arg(common_arg)
@@ -64,7 +93,7 @@ def add_train_args(parser):
     return parser
 
 
-def add_sample_args(parser):
+def add_sample_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     # Common
     common_arg = parser.add_argument_group("Common")
     add_common_arg(common_arg)
@@ -85,11 +114,11 @@ def add_sample_args(parser):
     return parser
 
 
-def read_smiles_csv(path):
-    return pd.read_csv(path, usecols=["SMILES"], squeeze=True).astype(str).tolist()
+def read_smiles_csv(path: str) -> list[str]:
+    return pd.read_csv(path, usecols=["SMILES"], squeeze=True).astype(str).tolist()  # type: ignore[no-any-return]
 
 
-def set_seed(seed):
+def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     random.seed(seed)
