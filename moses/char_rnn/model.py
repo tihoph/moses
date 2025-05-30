@@ -1,12 +1,22 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.utils.rnn as rnn_utils
+from torch import nn
+from typing_extensions import override
+
+if TYPE_CHECKING:
+    from moses.utils import CharVocab, LstmOutT
+
+    from .config import CharRNNConfig
 
 
 class CharRNN(nn.Module):
-    def __init__(self, vocabulary, config):
-        super(CharRNN, self).__init__()
+    def __init__(self, vocabulary: CharVocab, config: CharRNNConfig) -> None:
+        super().__init__()
 
         self.vocabulary = vocabulary
         self.hidden_size = config.hidden
@@ -17,7 +27,7 @@ class CharRNN(nn.Module):
         self.embedding_layer = nn.Embedding(
             self.vocab_size, self.vocab_size, padding_idx=vocabulary.pad
         )
-        self.lstm_layer = nn.LSTM(
+        self.lstm_layer = nn.LSTM(  # type: ignore[no-untyped-call]
             self.input_size,
             self.hidden_size,
             self.num_layers,
@@ -27,40 +37,43 @@ class CharRNN(nn.Module):
         self.linear_layer = nn.Linear(self.hidden_size, self.output_size)
 
     @property
-    def device(self):
-        return next(self.parameters()).device
+    def device(self) -> torch.device:
+        return next(self.parameters()).device  # type: ignore[no-any-return]
 
-    def forward(self, x, lengths, hiddens=None):
+    @override
+    def forward(
+        self,
+        x: torch.Tensor,
+        lengths: torch.Tensor,
+        hiddens: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         x = self.embedding_layer(x)
-        x = rnn_utils.pack_padded_sequence(x, lengths, batch_first=True)
-        x, hiddens = self.lstm_layer(x, hiddens)
-        x, _ = rnn_utils.pad_packed_sequence(x, batch_first=True)
+        packed_x = rnn_utils.pack_padded_sequence(x, lengths, batch_first=True)
+        lstm_out: LstmOutT = self.lstm_layer(packed_x, hiddens)
+        packed_x, hiddens = lstm_out
+        x, _ = rnn_utils.pad_packed_sequence(packed_x, batch_first=True)
         x = self.linear_layer(x)
 
         return x, lengths, hiddens
 
-    def string2tensor(self, string, device="model"):
+    def string2tensor(self, string: str, device: str | torch.device = "model") -> torch.Tensor:
         ids = self.vocabulary.string2ids(string, add_bos=True, add_eos=True)
-        tensor = torch.tensor(
+        return torch.tensor(
             ids, dtype=torch.long, device=self.device if device == "model" else device
         )
 
-        return tensor
-
-    def tensor2string(self, tensor):
+    def tensor2string(self, tensor: torch.Tensor) -> str:
         ids = tensor.tolist()
-        string = self.vocabulary.ids2string(ids, rem_bos=True, rem_eos=True)
+        return self.vocabulary.ids2string(ids, rem_bos=True, rem_eos=True)
 
-        return string
-
-    def sample(self, n_batch, max_length=100):
+    def sample(self, n_batch: int, max_length: int = 100) -> list[str]:
         with torch.no_grad():
-            starts = [
+            starts_ls = [
                 torch.tensor([self.vocabulary.bos], dtype=torch.long, device=self.device)
                 for _ in range(n_batch)
             ]
 
-            starts = torch.tensor(starts, dtype=torch.long, device=self.device).unsqueeze(1)
+            starts = torch.tensor(starts_ls, dtype=torch.long, device=self.device).unsqueeze(1)
 
             new_smiles_list = [
                 torch.tensor(self.vocabulary.pad, dtype=torch.long, device=self.device).repeat(
