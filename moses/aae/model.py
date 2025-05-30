@@ -193,7 +193,7 @@ class AAE(nn.Module):
                 self.vocabulary.bos
             )
             one_lens = torch.ones(n_batch, dtype=torch.long, device="cpu")
-            is_end = torch.zeros(n_batch, dtype=torch.uint8, device=self.device)
+            is_end = torch.zeros(n_batch, dtype=torch.bool, device=self.device)
 
             for i in range(max_len):
                 logits, _, states = self.decoder(prevs, one_lens, states, i == 0)
