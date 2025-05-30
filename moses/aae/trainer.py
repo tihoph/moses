@@ -1,25 +1,54 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.nn.utils.rnn import pad_sequence
 from tqdm.auto import tqdm
+from typing_extensions import override
 
 from moses.interfaces import MosesTrainer
 from moses.utils import CharVocab, Logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+
+    import numpy as np
+    from numpy.typing import NDArray
+    from torch.nn.modules.loss import _Loss as Loss
+    from torch.optim import Optimizer
+    from torch.utils.data import DataLoader
+
+    from .config import AAEConfig
+    from .model import AAE
 
 __all__ = ["AAETrainer"]
 
 
 class AAETrainer(MosesTrainer):
-    def __init__(self, config):
+    def __init__(self, config: AAEConfig) -> None:
         self.config = config
 
-    def _pretrain_epoch(self, model, tqdm_data, criterion, optimizer=None):
+    def _pretrain_epoch(
+        self,
+        model: AAE,
+        tqdm_data: tqdm[
+            tuple[
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+            ]
+        ],
+        criterion: Loss,
+        optimizer: Optimizer | None = None,
+    ) -> dict[str, Any]:
         if optimizer is None:
             model.eval()
         else:
             model.train()
 
-        postfix = {
+        postfix: dict[str, Any] = {
             "pretraining_loss": 0,
         }
 
@@ -36,16 +65,16 @@ class AAETrainer(MosesTrainer):
                 *decoder_inputs, latent_codes, is_latent_states=True
             )
 
-            decoder_outputs = torch.cat(
+            cat_decoder_outputs = torch.cat(
                 [t[:l] for t, l in zip(decoder_outputs, decoder_output_lengths)], dim=0
             )
-            decoder_targets = torch.cat([t[:l] for t, l in zip(*decoder_targets)], dim=0)
+            cat_decoder_targets = torch.cat([t[:l] for t, l in zip(*decoder_targets)], dim=0)
 
-            loss = criterion(decoder_outputs, decoder_targets)
+            loss: torch.Tensor = criterion(cat_decoder_outputs, cat_decoder_targets)
 
             if optimizer is not None:
                 optimizer.zero_grad()
-                loss.backward()
+                loss.backward()  # type:ignore[no-untyped-call]
                 optimizer.step()
 
             postfix["pretraining_loss"] += (loss.item() - postfix["pretraining_loss"]) / (i + 1)
@@ -56,7 +85,13 @@ class AAETrainer(MosesTrainer):
 
         return postfix
 
-    def _pretrain(self, model, train_loader, val_loader=None, logger=None):
+    def _pretrain(
+        self,
+        model: AAE,
+        train_loader: DataLoader[str],
+        val_loader: DataLoader[str] | None = None,
+        logger: Logger | None = None,
+    ) -> None:
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(
             list(model.encoder.parameters()) + list(model.decoder.parameters()),
@@ -87,13 +122,29 @@ class AAETrainer(MosesTrainer):
                 )
                 model = model.to(device)
 
-    def _train_epoch(self, model, tqdm_data, criterions, optimizers=None):
+    def _train_epoch(
+        self,
+        model: AAE,
+        tqdm_data: tqdm[
+            tuple[
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+                tuple[torch.Tensor, torch.Tensor],
+            ]
+        ],
+        criterions: Mapping[str, Loss],
+        optimizers: Mapping[str, Optimizer] | None = None,
+    ) -> dict[str, Any]:
         if optimizers is None:
             model.eval()
         else:
             model.train()
 
-        postfix = {"autoencoder_loss": 0, "generator_loss": 0, "discriminator_loss": 0}
+        postfix: dict[str, Any] = {
+            "autoencoder_loss": 0,
+            "generator_loss": 0,
+            "discriminator_loss": 0,
+        }
 
         for i, (enc_inputs, dec_inputs, dec_targets) in enumerate(tqdm_data):
             encoder_inputs = (enc_inputs[0].to(model.device), enc_inputs[1].to("cpu"))
@@ -108,13 +159,18 @@ class AAETrainer(MosesTrainer):
                 *decoder_inputs, latent_codes, is_latent_states=True
             )
             discriminator_outputs = model.discriminator_forward(latent_codes)
-            decoder_outputs = torch.cat(
+            cat_decoder_outputs = torch.cat(
                 [t[:l] for t, l in zip(decoder_outputs, decoder_output_lengths)], dim=0
             )
-            decoder_targets = torch.cat([t[:l] for t, l in zip(*decoder_targets)], dim=0)
+            cat_decoder_targets = torch.cat([t[:l] for t, l in zip(*decoder_targets)], dim=0)
 
+            autoencoder_loss: torch.Tensor
+            generator_loss: torch.Tensor
+            discriminator_loss: torch.Tensor
             if i % (self.config.discriminator_steps + 1) == 0:
-                autoencoder_loss = criterions["autoencoder"](decoder_outputs, decoder_targets)
+                autoencoder_loss = criterions["autoencoder"](
+                    cat_decoder_outputs, cat_decoder_targets
+                )
                 discriminator_targets = torch.ones(latent_codes.shape[0], 1, device=model.device)
                 generator_loss = criterions["discriminator"](
                     discriminator_outputs, discriminator_targets
@@ -139,7 +195,7 @@ class AAETrainer(MosesTrainer):
                 discriminator_loss = criterions["discriminator"](
                     discriminator_outputs, discriminator_targets
                 )
-                total_loss = 0.5 * generator_loss + 0.5 * discriminator_loss
+                total_loss = (generator_loss + discriminator_loss) / 2
                 postfix["discriminator_loss"] = (
                     postfix["discriminator_loss"] * (i // 2) + total_loss.item()
                 ) / (i // 2 + 1)
@@ -160,13 +216,19 @@ class AAETrainer(MosesTrainer):
         postfix["mode"] = "Eval" if optimizers is None else "Train"
         return postfix
 
-    def _train(self, model, train_loader, val_loader=None, logger=None):
-        criterions = {
+    def _train(
+        self,
+        model: AAE,
+        train_loader: DataLoader[str],
+        val_loader: DataLoader[str] | None = None,
+        logger: Logger | None = None,
+    ) -> None:
+        criterions: dict[str, Loss] = {
             "autoencoder": nn.CrossEntropyLoss(),
             "discriminator": nn.BCEWithLogitsLoss(),
         }
 
-        optimizers = {
+        optimizers: dict[str, Optimizer] = {
             "autoencoder": torch.optim.Adam(
                 list(model.encoder.parameters()) + list(model.decoder.parameters()),
                 lr=self.config.lr,
@@ -186,11 +248,13 @@ class AAETrainer(MosesTrainer):
 
         model.zero_grad()
         for epoch in range(self.config.train_epochs):
+            tqdm_data = tqdm(train_loader, desc="Training (epoch #{})".format(epoch))
+
+            postfix = self._train_epoch(model, tqdm_data, criterions, optimizers)
+
             for scheduler in schedulers.values():
                 scheduler.step()
 
-            tqdm_data = tqdm(train_loader, desc="Training (epoch #{})".format(epoch))
-            postfix = self._train_epoch(model, tqdm_data, criterions, optimizers)
             if logger is not None:
                 logger.append(postfix)
                 logger.save(self.config.log_file)
@@ -210,13 +274,31 @@ class AAETrainer(MosesTrainer):
                 )
                 model = model.to(device)
 
-    def get_vocabulary(self, data):
+    @override
+    def get_vocabulary(self, data: NDArray[np.str_] | Sequence[str]) -> CharVocab:
         return CharVocab.from_data(data)
 
-    def get_collate_fn(self, model):
+    @override
+    def get_collate_fn(  # type: ignore[override]
+        self,
+        model: AAE,
+    ) -> Callable[
+        [list[str]],
+        tuple[
+            tuple[torch.Tensor, torch.Tensor],
+            tuple[torch.Tensor, torch.Tensor],
+            tuple[torch.Tensor, torch.Tensor],
+        ],
+    ]:
         device = self.get_collate_device(model)
 
-        def collate(data):
+        def collate(
+            data: list[str],
+        ) -> tuple[
+            tuple[torch.Tensor, torch.Tensor],
+            tuple[torch.Tensor, torch.Tensor],
+            tuple[torch.Tensor, torch.Tensor],
+        ]:
             data.sort(key=lambda x: len(x), reverse=True)
 
             tensors = [model.string2tensor(string, device=device) for string in data]
@@ -241,7 +323,7 @@ class AAETrainer(MosesTrainer):
             )
             decoder_target_lengths = lengths - 1
 
-            return (
+            return (  # type: ignore[return-value]
                 (encoder_inputs, encoder_input_lengths),
                 (decoder_inputs, decoder_input_lengths),
                 (decoder_targets, decoder_target_lengths),
@@ -249,7 +331,13 @@ class AAETrainer(MosesTrainer):
 
         return collate
 
-    def fit(self, model, train_data, val_data=None):
+    @override
+    def fit(  # type: ignore[override]
+        self,
+        model: AAE,
+        train_data: NDArray[np.str_] | Sequence[str],
+        val_data: NDArray[np.str_] | Sequence[str] | None = None,
+    ) -> AAE:
         logger = Logger() if self.config.log_file is not None else None
 
         train_loader = self.get_dataloader(model, train_data, shuffle=True)
