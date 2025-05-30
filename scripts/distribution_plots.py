@@ -7,13 +7,19 @@ import pandas as pd
 import seaborn as sns
 from scipy.stats import wasserstein_distance
 
-from moses import get_dataset
+from moses.dataset import get_dataset
 from moses.metrics import QED, SA, logP, weight
-from moses.metrics.utils import get_mol, mapper
+from moses.metrics.utils import get_mol, mapper  # type: ignore[attr-defined]
 from moses.utils import disable_rdkit_log
 
 
-def get_parser():
+class PlotConfig(argparse.Namespace):
+    config: str
+    n_jobs: int
+    img_folder: str
+
+
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser("Prepares distribution plots for weight, logP, SA, and QED\n")
     parser.add_argument(
         "--config",
@@ -34,9 +40,7 @@ def get_parser():
 if __name__ == "__main__":
     disable_rdkit_log()
     parser = get_parser()
-    config, unknown = parser.parse_known_args()
-    if len(unknown) != 0:
-        raise ValueError("Unknown argument " + unknown[0])
+    config: PlotConfig = parser.parse_args()  # type: ignore[assignment]
 
     os.makedirs(config.img_folder, exist_ok=True)
 
@@ -50,9 +54,9 @@ if __name__ == "__main__":
     for s in generated.values():
         s["ROMol"] = mapper(config.n_jobs)(get_mol, s["SMILES"])
 
-    distributions = OrderedDict()
+    distributions: dict[str, dict[str, list[float]]] = {}
     for metric_name, metric_fn in metrics.items():
-        distributions[metric_name] = OrderedDict()
+        distributions[metric_name] = {}
         for _set, _molecules in generated.items():
             distributions[metric_name][_set] = mapper(config.n_jobs)(
                 metric_fn, _molecules["ROMol"].dropna().values

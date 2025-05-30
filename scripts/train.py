@@ -1,21 +1,20 @@
 import argparse
-import os
 import sys
 
-import rdkit
 import torch
+from rdkit import RDLogger
 
 from moses.dataset import get_dataset
 from moses.models_storage import ModelsStorage
-from moses.script_utils import add_train_args, read_smiles_csv, set_seed
+from moses.script_utils import TrainConfig, add_train_args, read_smiles_csv, set_seed
 
-lg = rdkit.RDLogger.logger()
-lg.setLevel(rdkit.RDLogger.CRITICAL)
+lg = RDLogger.logger()
+lg.setLevel(RDLogger.CRITICAL)  # type: ignore[no-untyped-call]
 
 MODELS = ModelsStorage()
 
 
-def get_parser():
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(
         title="Models trainer script", description="available models"
@@ -25,7 +24,7 @@ def get_parser():
     return parser
 
 
-def main(model, config):
+def main(model: str, config: TrainConfig) -> None:
     set_seed(config.seed)
     device = torch.device(config.device)
 
@@ -35,34 +34,33 @@ def main(model, config):
     # For CUDNN to work properly
     if device.type.startswith("cuda"):
         torch.cuda.set_device(device.index or 0)
-    if config.train_load is None:
-        train_data = get_dataset("train")
-    else:
-        train_data = read_smiles_csv(config.train_load)
-    if config.val_load is None:
-        val_data = get_dataset("test")
-    else:
-        val_data = read_smiles_csv(config.val_load)
-    trainer = MODELS.get_model_trainer(model)(config)
 
-    if config.vocab_load is not None:
-        assert os.path.exists(config.vocab_load), "vocab_load path does not exist!"
-        vocab = torch.load(config.vocab_load)
-    else:
-        vocab = trainer.get_vocabulary(train_data)
+    train_data = (
+        get_dataset("train") if config.train_load is None else read_smiles_csv(config.train_load)
+    )
+
+    val_data = get_dataset("test") if config.val_load is None else read_smiles_csv(config.val_load)
+
+    trainer = MODELS.get_model_trainer(model)(config)  # type: ignore[call-arg]
+
+    vocab = (
+        torch.load(config.vocab_load)
+        if config.vocab_load is not None
+        else trainer.get_vocabulary(train_data)
+    )
 
     if config.vocab_save is not None:
         torch.save(vocab, config.vocab_save)
 
-    model = MODELS.get_model_class(model)(vocab, config).to(device)
-    trainer.fit(model, train_data, val_data)
+    model_cls = MODELS.get_model_class(model)(vocab, config).to(device)  # type: ignore[call-arg]
+    trainer.fit(model_cls, train_data, val_data)
 
-    model = model.to("cpu")
-    torch.save(model.state_dict(), config.model_save)
+    model_cls = model_cls.to("cpu")
+    torch.save(model_cls.state_dict(), config.model_save)
 
 
 if __name__ == "__main__":
     parser = get_parser()
-    config = parser.parse_args()
+    config: TrainConfig = parser.parse_args()  # type: ignore[assignment]
     model = sys.argv[1]
     main(model, config)

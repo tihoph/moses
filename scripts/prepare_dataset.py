@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import gzip
 import logging
 from functools import partial
 from multiprocessing import Pool
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from rdkit import Chem
@@ -10,11 +13,23 @@ from tqdm.auto import tqdm
 
 from moses.metrics import compute_scaffold, mol_passes_filters
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("prepare dataset")
 
 
-def get_parser():
+class PrepareConfig(argparse.Namespace):
+    output: str
+    seed: int
+    zinc: str
+    n_jobs: int
+    keep_ids: int
+    isomeric: bool
+
+
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -47,27 +62,26 @@ def get_parser():
     return parser
 
 
-def process_molecule(mol_row, isomeric):
-    mol_row = mol_row.decode("utf-8")
-    smiles, _id = mol_row.split()
+def process_molecule(mol_row: bytes, isomeric: bool) -> tuple[str, str] | None:
+    mol_row_str = mol_row.decode("utf-8")
+    smiles, _id = mol_row_str.split()
     if not mol_passes_filters(smiles):
         return None
     smiles = Chem.MolToSmiles(Chem.MolFromSmiles(smiles), isomericSmiles=isomeric)
     return _id, smiles
 
 
-def unzip_dataset(path):
+def unzip_dataset(path: str) -> list[bytes]:
     logger.info("Unzipping dataset")
     with gzip.open(path) as smi:
-        lines = smi.readlines()
-    return lines
+        return smi.readlines()
 
 
-def filter_lines(lines, n_jobs, isomeric):
+def filter_lines(lines: Sequence[bytes], n_jobs: int, isomeric: bool) -> pd.DataFrame:
     logger.info("Filtering SMILES")
     with Pool(n_jobs) as pool:
         process_molecule_p = partial(process_molecule, isomeric=isomeric)
-        dataset = [
+        dataset_ls = [
             x
             for x in tqdm(
                 pool.imap_unordered(process_molecule_p, lines),
@@ -76,7 +90,7 @@ def filter_lines(lines, n_jobs, isomeric):
             )
             if x is not None
         ]
-        dataset = pd.DataFrame(dataset, columns=["ID", "SMILES"])
+        dataset = pd.DataFrame(dataset_ls, columns=["ID", "SMILES"])
         dataset = dataset.sort_values(by=["ID", "SMILES"])
         dataset = dataset.drop_duplicates("ID")
         dataset = dataset.sort_values(by="ID")
@@ -85,32 +99,29 @@ def filter_lines(lines, n_jobs, isomeric):
     return dataset
 
 
-def split_dataset(dataset, seed):
+def split_dataset(dataset: pd.DataFrame, seed: int) -> pd.DataFrame:
     logger.info("Splitting the dataset")
     scaffolds = pd.value_counts(dataset["scaffold"])
     scaffolds = sorted(scaffolds.items(), key=lambda x: (-x[1], x[0]))
-    test_scaffolds = set([x[0] for x in scaffolds[9::10]])
+    test_scaffolds = {x[0] for x in scaffolds[9::10]}
     dataset["SPLIT"] = "train"
     test_scaf_idx = [x in test_scaffolds for x in dataset["scaffold"]]
     dataset.loc[test_scaf_idx, "SPLIT"] = "test_scaffolds"
     test_idx = dataset.loc[dataset["SPLIT"] == "train"].sample(frac=0.1, random_state=seed).index
     dataset.loc[test_idx, "SPLIT"] = "test"
-    dataset.drop("scaffold", axis=1, inplace=True)
-    return dataset
+    return dataset.drop("scaffold", axis=1)
 
 
-def main(config):
+def main(config: PrepareConfig) -> None:
     lines = unzip_dataset(config.zinc)
     dataset = filter_lines(lines, config.n_jobs, config.isomeric)
     dataset = split_dataset(dataset, config.seed)
     if not config.keep_ids:
-        dataset.drop("ID", 1, inplace=True)
+        dataset = dataset.drop("ID", 1)
     dataset.to_csv(config.output, index=None)
 
 
 if __name__ == "__main__":
     parser = get_parser()
-    config, unknown = parser.parse_known_args()
-    if len(unknown) != 0:
-        raise ValueError("Unknown argument " + unknown[0])
+    config: PrepareConfig = parser.parse_args()  # type: ignore[assignment]
     main(config)

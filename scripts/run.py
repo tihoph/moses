@@ -1,58 +1,91 @@
+from __future__ import annotations
+
 import argparse
 import importlib.util
 import os
 import sys
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from moses.models_storage import ModelsStorage
 
+if TYPE_CHECKING:
+    from types import ModuleType
 
-def load_module(name, path):
+    import eval as eval_script
+    import sample as sampler_script
+    import train as trainer_script
+    from eval import EvalConfig
+
+    from moses.script_utils import SampleConfig, TrainConfig
+
+
+class Config(argparse.Namespace):
+    model: str
+    test_path: str
+    test_scaffolds_path: str
+    train_path: str
+    ptest_path: str
+    ptest_scaffolds_path: str
+    checkpoint_dir: str
+    n_samples: int
+    n_jobs: int
+    device: str
+    metrics: str
+    train_size: int | None
+    test_size: int | None
+    experiment_suff: str
+
+
+def load_module(name: str, path: str) -> ModuleType:
     dirname = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(dirname, path)
     spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"Could not load module {name} from {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
     return module
 
 
+if not TYPE_CHECKING:
+    eval_script = load_module("eval", "eval.py")
+    trainer_script = load_module("train", "train.py")
+    sampler_script = load_module("sample", "sample.py")
+
 MODELS = ModelsStorage()
-split_dataset = load_module("split_dataset", "split_dataset.py")
-eval_script = load_module("eval", "eval.py")
-trainer_script = load_module("train", "train.py")
-sampler_script = load_module("sample", "sample.py")
 
 
-def get_model_path(config, model):
+def get_model_path(config: Config, model: str) -> str:
     return os.path.join(config.checkpoint_dir, model + config.experiment_suff + "_model.pt")
 
 
-def get_log_path(config, model):
+def get_log_path(config: Config, model: str) -> str:
     return os.path.join(config.checkpoint_dir, model + config.experiment_suff + "_log.txt")
 
 
-def get_config_path(config, model):
+def get_config_path(config: Config, model: str) -> str:
     return os.path.join(config.checkpoint_dir, model + config.experiment_suff + "_config.pt")
 
 
-def get_vocab_path(config, model):
+def get_vocab_path(config: Config, model: str) -> str:
     return os.path.join(config.checkpoint_dir, model + config.experiment_suff + "_vocab.pt")
 
 
-def get_generation_path(config, model):
+def get_generation_path(config: Config, model: str) -> str:
     return os.path.join(config.checkpoint_dir, model + config.experiment_suff + "_generated.csv")
 
 
-def get_parser():
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
         "--model",
         type=str,
         default="all",
-        choices=["all"] + MODELS.get_model_names(),
+        choices=["all", *MODELS.get_model_names()],
         help="Which model to run",
     )
     parser.add_argument("--test_path", type=str, required=False, help="Path to test molecules csv")
@@ -105,7 +138,7 @@ def get_parser():
     return parser
 
 
-def train_model(config, model, train_path, test_path):
+def train_model(config: Config, model: str, train_path: str, test_path: str) -> None:
     print("Training...")
     model_path = get_model_path(config, model)
     config_path = get_config_path(config, model)
@@ -135,11 +168,11 @@ def train_model(config, model, train_path, test_path):
     if test_path is not None:
         args.extend(["--val_load", test_path])
 
-    trainer_config = trainer_parser.parse_known_args([model] + sys.argv[1:] + args)[0]
+    trainer_config: TrainConfig = trainer_parser.parse_known_args([model] + sys.argv[1:] + args)[0]  # type: ignore[assignment]
     trainer_script.main(model, trainer_config)
 
 
-def sample_from_model(config, model):
+def sample_from_model(config: Config, model: str) -> None:
     print("Sampling...")
     model_path = get_model_path(config, model)
     config_path = get_config_path(config, model)
@@ -152,7 +185,7 @@ def sample_from_model(config, model):
     assert os.path.exists(vocab_path), "Can't find vocab path for sampling: '{}'".format(vocab_path)
 
     sampler_parser = sampler_script.get_parser()
-    sampler_config = sampler_parser.parse_known_args(
+    sampler_config: SampleConfig = sampler_parser.parse_known_args(  # type: ignore[assignment]
         [model]
         + sys.argv[1:]
         + [
@@ -174,14 +207,14 @@ def sample_from_model(config, model):
 
 
 def eval_metrics(
-    config,
-    model,
-    test_path,
-    test_scaffolds_path,
-    ptest_path,
-    ptest_scaffolds_path,
-    train_path,
-):
+    config: Config,
+    model: str,
+    test_path: str,
+    test_scaffolds_path: str,
+    ptest_path: str,
+    ptest_scaffolds_path: str,
+    train_path: str,
+) -> dict[str, float]:
     print("Computing metrics...")
     eval_parser = eval_script.get_parser()
     args = [
@@ -203,13 +236,11 @@ def eval_metrics(
     if train_path is not None:
         args.extend(["--train_path", train_path])
 
-    eval_config = eval_parser.parse_args(args)
-    metrics = eval_script.main(eval_config, print_metrics=False)
-
-    return metrics
+    eval_config: EvalConfig = eval_parser.parse_args(args)  # type: ignore[assignment]
+    return eval_script.main(eval_config, print_metrics=False)
 
 
-def main(config):
+def main(config: Config) -> None:
     if not os.path.exists(config.checkpoint_dir):
         os.mkdir(config.checkpoint_dir)
 
@@ -244,5 +275,5 @@ def main(config):
 
 if __name__ == "__main__":
     parser = get_parser()
-    config = parser.parse_known_args()[0]
+    config: Config = parser.parse_known_args()[0]  # type: ignore[assignment]
     main(config)

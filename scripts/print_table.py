@@ -1,11 +1,24 @@
+from __future__ import annotations
+
 import argparse
 import re
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
-def get_parser():
+
+class PrintConfig(argparse.Namespace):
+    config: str
+    extension: Literal["html", "latex", "csv"]
+    output: str
+    precision: int
+
+
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser("Prints a table from metrics files\n")
     parser.add_argument(
         "--config",
@@ -35,7 +48,7 @@ def get_parser():
     return parser
 
 
-def format_result(result, fmt=None):
+def format_result(result: Mapping[str, float], fmt: str | None = None) -> str:
     if np.isnan(result["std"]):
         result_str = str(result["mean"])
     else:
@@ -47,18 +60,18 @@ def format_result(result, fmt=None):
 
 if __name__ == "__main__":
     parser = get_parser()
-    config, unknown = parser.parse_known_args()
-    if len(unknown) != 0:
-        raise ValueError("Unknown argument " + unknown[0])
+    config: PrintConfig = parser.parse_known_args()  # type: ignore[assignment]
 
-    metrics = []
+    metrics_ls: list[dict[str, float]] = []
     models = pd.read_csv(config.config)
     for path, name in zip(models["path"], models["name"]):
         parsed_metrics = pd.read_csv(path, header=None)
-        parsed_metrics = {x[1][0]: x[1][1] for x in parsed_metrics.iterrows()}
-        parsed_metrics["Model"] = name
-        metrics.append(parsed_metrics)
-    metrics = pd.DataFrame(metrics)
+        parsed_metrics_dict: dict[str, float] = {
+            x[1][0]: x[1][1] for x in parsed_metrics.iterrows()
+        }
+        parsed_metrics_dict["Model"] = name
+        metrics_ls.append(parsed_metrics_dict)
+    metrics = pd.DataFrame(metrics_ls)
     metrics = metrics.groupby("Model", sort=False)
     metrics = metrics.agg([np.mean, np.std]).reset_index()
     metrics = metrics.rename(
@@ -102,7 +115,7 @@ if __name__ == "__main__":
     models = [x for x in metrics.index if x != "Train"]
 
     if "Train" in metrics.index:
-        models = ["Train"] + models
+        models = ["Train", *models]
     metrics = metrics.loc[models].reset_index()
 
     for col, d in zip(targets[1:], directions[1:]):
@@ -132,12 +145,12 @@ if __name__ == "__main__":
         html = re.sub("&gt;", ">", html)
         header, footer = html.split("</thead>")
         header += "</thead>"
-        header = header.split("\n")
-        values = [x.strip()[4:-5] for x in header[3:-2]]
+        header_ls = header.split("\n")
+        values = [x.strip()[4:-5] for x in header_ls[3:-2]]
         spans = ["rowspan" if "/" not in x else "colspan" for x in values]
         first_header = [x.split("/")[0] for x in values]
         second_header = [x.split("/")[1] for x in values if "/" in x]
-        new_header = header[:3]
+        new_header = header_ls[:3]
         i = 0
         total = 0
         while i < len(first_header):

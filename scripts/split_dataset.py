@@ -7,7 +7,19 @@ import pandas as pd
 from moses.metrics import compute_intermediate_statistics
 
 
-def str2bool(v):
+class SplitConfig(argparse.Namespace):
+    dir: str
+    no_subset: bool
+    train_size: int
+    test_size: int
+    seed: int
+    precompute: bool
+    n_jobs: int
+    device: str
+    batch_size: int
+
+
+def str2bool(v: str) -> bool:
     if v.lower() in ("yes", "true", "t", "y", "1"):
         return True
     if v.lower() in ("no", "false", "f", "n", "0"):
@@ -15,7 +27,7 @@ def str2bool(v):
     raise argparse.ArgumentTypeError("Boolean value expected.")
 
 
-def get_parser():
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--dir", type=str, default="./data", help="Directory for splitted dataset")
@@ -41,7 +53,7 @@ def get_parser():
     return parser
 
 
-def main(config):
+def main(config: SplitConfig) -> None:
     dataset_path = os.path.join(config.dir, "dataset_v1.csv")
     repo_url = "https://media.githubusercontent.com/media/molecularsets/moses/"
     download_url = repo_url + "master/data/dataset_v1.csv"
@@ -85,13 +97,14 @@ def main(config):
             device=config.device,
             batch_size=config.batch_size,
         )
-        np.savez(os.path.join(config.dir, "test_stats.npz"), stats=test_stats)
-        np.savez(os.path.join(config.dir, "test_scaffolds_stats.npz"), stats=test_sf_stats)
+        np.savez(os.path.join(config.dir, "test_stats.npz"), stats=test_stats)  # type: ignore[arg-type]
+        np.savez(
+            os.path.join(config.dir, "test_scaffolds_stats.npz"),
+            stats=test_sf_stats,  # type: ignore[arg-type]
+        )
 
 
 if __name__ == "__main__":
     parser = get_parser()
-    config, unknown = parser.parse_known_args()
-    if len(unknown) != 0:
-        raise ValueError("Unknown argument " + unknown[0])
+    config: SplitConfig = parser.parse_args()  # type: ignore[assignment]
     main(config)

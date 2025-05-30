@@ -2,20 +2,20 @@ import argparse
 import sys
 
 import pandas as pd
-import rdkit
 import torch
+from rdkit import RDLogger
 from tqdm.auto import tqdm
 
 from moses.models_storage import ModelsStorage
-from moses.script_utils import add_sample_args, set_seed
+from moses.script_utils import SampleConfig, add_sample_args, set_seed
 
-lg = rdkit.RDLogger.logger()
-lg.setLevel(rdkit.RDLogger.CRITICAL)
+lg = RDLogger.logger()
+lg.setLevel(RDLogger.CRITICAL)  # type: ignore[no-untyped-call]
 
 MODELS = ModelsStorage()
 
 
-def get_parser():
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(
         title="Models sampler script", description="available models"
@@ -25,7 +25,7 @@ def get_parser():
     return parser
 
 
-def main(model, config):
+def main(model: str, config: SampleConfig) -> None:
     set_seed(config.seed)
     device = torch.device(config.device)
 
@@ -37,27 +37,27 @@ def main(model, config):
     model_vocab = torch.load(config.vocab_load)
     model_state = torch.load(config.model_load)
 
-    model = MODELS.get_model_class(model)(model_vocab, model_config)
-    model.load_state_dict(model_state)
-    model = model.to(device)
-    model.eval()
+    model_cls = MODELS.get_model_class(model)(model_vocab, model_config)  # type: ignore[call-arg]
+    model_cls.load_state_dict(model_state)
+    model_cls = model_cls.to(device)
+    model_cls.eval()
 
-    samples = []
+    samples_ls: list[str] = []
     n = config.n_samples
     with tqdm(total=config.n_samples, desc="Generating samples") as T:
         while n > 0:
-            current_samples = model.sample(min(n, config.n_batch), config.max_len)
-            samples.extend(current_samples)
+            current_samples = model_cls.sample(min(n, config.n_batch), config.max_len)
+            samples_ls.extend(current_samples)
 
             n -= len(current_samples)
             T.update(len(current_samples))
 
-    samples = pd.DataFrame(samples, columns=["SMILES"])
+    samples = pd.DataFrame(samples_ls, columns=["SMILES"])
     samples.to_csv(config.gen_save, index=False)
 
 
 if __name__ == "__main__":
     parser = get_parser()
-    config = parser.parse_args()
+    config: SampleConfig = parser.parse_args()  # type: ignore[assignment]
     model = sys.argv[1]
     main(model, config)

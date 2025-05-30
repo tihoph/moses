@@ -1,16 +1,39 @@
+from __future__ import annotations
+
 import argparse
+from typing import Literal, overload
 
 import numpy as np
-import rdkit
+from rdkit import RDLogger
 
 from moses.metrics.metrics import get_all_metrics
 from moses.script_utils import read_smiles_csv
 
-lg = rdkit.RDLogger.logger()
-lg.setLevel(rdkit.RDLogger.CRITICAL)
+lg = RDLogger.logger()
+lg.setLevel(RDLogger.CRITICAL)  # type: ignore[no-untyped-call]
 
 
-def main(config, print_metrics=True):
+class EvalConfig(argparse.Namespace):
+    test_path: str
+    test_scaffolds_path: str
+    train_path: str
+    ptest_path: str
+    ptest_scaffolds_path: str
+    gen_path: str
+    unique_k: str
+    n_jobs: int
+    device: str
+
+
+@overload
+def main(config: EvalConfig, print_metrics: Literal[True] = True) -> None: ...
+
+
+@overload
+def main(config: EvalConfig, print_metrics: Literal[False] = ...) -> dict[str, float]: ...
+
+
+def main(config: EvalConfig, print_metrics: bool = True) -> dict[str, float] | None:
     test = None
     test_scaffolds = None
     ptest = None
@@ -42,11 +65,11 @@ def main(config, print_metrics=True):
     if print_metrics:
         for name, value in metrics.items():
             print("{},{}".format(name, value))
-    else:
-        return metrics
+        return None
+    return metrics
 
 
-def get_parser():
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--test_path", type=str, required=False, help="Path to test molecules csv")
     parser.add_argument(
@@ -90,5 +113,5 @@ def get_parser():
 
 if __name__ == "__main__":
     parser = get_parser()
-    config = parser.parse_known_args()[0]
+    config: EvalConfig = parser.parse_known_args()[0]  # type: ignore[assignment]
     main(config)
