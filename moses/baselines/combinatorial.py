@@ -1,11 +1,12 @@
-from collections import Counter
 import pickle
 import re
+from collections import Counter
+
 import numpy as np
 import pandas as pd
-from tqdm.auto import tqdm
 from rdkit import Chem
 from rdkit.Chem.BRICS import reactionDefs
+from tqdm.auto import tqdm
 
 import moses
 from moses.metrics.utils import fragmenter

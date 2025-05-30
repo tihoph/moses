@@ -1,7 +1,8 @@
-import os
 import argparse
-import pandas as pd
+import os
+
 import numpy as np
+import pandas as pd
 
 from moses.metrics import compute_intermediate_statistics
 

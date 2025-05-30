@@ -1,24 +1,25 @@
 import warnings
 from multiprocessing import Pool
+
 import numpy as np
-from scipy.spatial.distance import cosine as cos_distance
 from fcd_torch import FCD as FCDMetric
+from scipy.spatial.distance import cosine as cos_distance
 from scipy.stats import wasserstein_distance
 
 from moses.dataset import get_dataset, get_statistics
-from moses.utils import mapper
-from moses.utils import disable_rdkit_log, enable_rdkit_log
+from moses.utils import disable_rdkit_log, enable_rdkit_log, mapper
+
 from .utils import (
-    compute_fragments,
+    QED,
+    SA,
     average_agg_tanimoto,
+    canonic_smiles,
+    compute_fragments,
     compute_scaffolds,
     fingerprints,
     get_mol,
-    canonic_smiles,
-    mol_passes_filters,
     logP,
-    QED,
-    SA,
+    mol_passes_filters,
     weight,
 )
 

@@ -1,14 +1,15 @@
-import os
 import argparse
+import os
 from collections import OrderedDict
-import pandas as pd
+
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 from scipy.stats import wasserstein_distance
 
-from moses.metrics import weight, logP, SA, QED
-from moses.metrics.utils import get_mol, mapper
 from moses import get_dataset
+from moses.metrics import QED, SA, logP, weight
+from moses.metrics.utils import get_mol, mapper
 from moses.utils import disable_rdkit_log
 
 

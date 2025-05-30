@@ -1,6 +1,7 @@
 import pickle
+
 import numpy as np
-from pomegranate import HiddenMarkovModel, DiscreteDistribution
+from pomegranate import DiscreteDistribution, HiddenMarkovModel
 
 import moses
 

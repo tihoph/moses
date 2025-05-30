@@ -1,11 +1,10 @@
-import unittest
 import tempfile
+import unittest
+
 import numpy as np
 
 import moses
-from moses.baselines import CombinatorialGenerator
-from moses.baselines import NGram
-from moses.baselines import HMM
+from moses.baselines import HMM, CombinatorialGenerator, NGram
 from moses.metrics.utils import fragmenter
 
 

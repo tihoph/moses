@@ -3,12 +3,12 @@ import gzip
 import logging
 from functools import partial
 from multiprocessing import Pool
+
 import pandas as pd
-from tqdm.auto import tqdm
 from rdkit import Chem
+from tqdm.auto import tqdm
 
-from moses.metrics import mol_passes_filters, compute_scaffold
-
+from moses.metrics import compute_scaffold, mol_passes_filters
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("prepare dataset")

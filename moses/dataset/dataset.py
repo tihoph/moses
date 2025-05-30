@@ -1,7 +1,7 @@
 import os
+
 import numpy as np
 import pandas as pd
-
 
 AVAILABLE_SPLITS = ["train", "test", "test_scaffolds"]
 

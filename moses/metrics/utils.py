@@ -1,20 +1,20 @@
 import os
 from collections import Counter
 from functools import partial
+
 import numpy as np
 import pandas as pd
 import scipy.sparse
 import torch
 from rdkit import Chem
-from rdkit.Chem import AllChem
-from rdkit.Chem import MACCSkeys
+from rdkit.Chem import AllChem, Descriptors, MACCSkeys
 from rdkit.Chem.AllChem import GetMorganFingerprintAsBitVect as Morgan
 from rdkit.Chem.QED import qed
 from rdkit.Chem.Scaffolds import MurckoScaffold
-from rdkit.Chem import Descriptors
-from moses.metrics.SA_Score import sascorer
+
 from moses.metrics.NP_Score import npscorer
-from moses.utils import mapper, get_mol
+from moses.metrics.SA_Score import sascorer
+from moses.utils import get_mol, mapper
 
 _base_dir = os.path.split(__file__)[0]
 _mcf = pd.read_csv(os.path.join(_base_dir, "mcf.csv"))

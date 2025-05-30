@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-
-from tqdm.auto import tqdm
 from torch.nn.utils.rnn import pad_sequence
+from tqdm.auto import tqdm
 
 from moses.interfaces import MosesTrainer
 from moses.utils import CharVocab, Logger

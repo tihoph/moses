@@ -1,9 +1,9 @@
 from __future__ import print_function
 
 import unittest
-from rdkit import Chem
 
 import sascorer
+from rdkit import Chem
 
 print(sascorer.__file__)
 
@@ -22,9 +22,9 @@ class TestCase(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    import sys
     import getopt
     import re
+    import sys
 
     doLong = 0
     if len(sys.argv) > 1:

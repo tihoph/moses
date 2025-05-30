@@ -1,11 +1,10 @@
 import torch
 import torch.optim as optim
+from torch.nn.utils import clip_grad_norm_
 from tqdm.auto import tqdm
 
-from torch.nn.utils import clip_grad_norm_
-
 from moses.interfaces import MosesTrainer
-from moses.utils import OneHotVocab, Logger, CircularBuffer
+from moses.utils import CircularBuffer, Logger, OneHotVocab
 from moses.vae.misc import CosineAnnealingLRWithRestart, KLAnnealer
 
 

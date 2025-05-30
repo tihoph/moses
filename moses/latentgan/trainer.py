@@ -1,18 +1,18 @@
-from collections import Counter
 import os
 import sys
-from tqdm.auto import tqdm
+from collections import Counter
+
 import numpy as np
 import pandas as pd
 import torch
 import torch.optim as optim
 from rdkit import Chem
+from tqdm.auto import tqdm
 
 from moses.interfaces import MosesTrainer
 from moses.utils import CharVocab, Logger
-from .model import LatentMolsDataset
-from .model import load_model
-from .model import Sampler
+
+from .model import LatentMolsDataset, Sampler, load_model
 
 
 class LatentGANTrainer(MosesTrainer):

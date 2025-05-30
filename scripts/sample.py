@@ -1,9 +1,11 @@
 import argparse
 import sys
-import torch
-import rdkit
+
 import pandas as pd
+import rdkit
+import torch
 from tqdm.auto import tqdm
+
 from moses.models_storage import ModelsStorage
 from moses.script_utils import add_sample_args, set_seed
 

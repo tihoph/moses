@@ -15,15 +15,16 @@
 #
 
 from __future__ import print_function
-import sys
-import math
+
 import gzip
-import pickle
+import math
 import os.path
+import pickle
+import sys
 from collections import namedtuple
+
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
-
 
 _fscores = None
 

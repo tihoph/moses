@@ -1,12 +1,12 @@
 import random
-from multiprocessing import Pool
 from collections import UserList, defaultdict
+from multiprocessing import Pool
+
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
 import torch
-from rdkit import rdBase
-from rdkit import Chem
+from matplotlib import pyplot as plt
+from rdkit import Chem, rdBase
 
 
 # https://pytorch.org/docs/stable/data.html#torch.utils.data.DataLoader

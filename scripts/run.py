@@ -1,7 +1,8 @@
-import os
 import argparse
-import sys
 import importlib.util
+import os
+import sys
+
 import pandas as pd
 
 from moses.models_storage import ModelsStorage

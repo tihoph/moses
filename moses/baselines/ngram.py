@@ -1,6 +1,8 @@
 import pickle
+
 import numpy as np
 from tqdm.auto import tqdm
+
 import moses
 from moses import CharVocab
 

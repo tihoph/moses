@@ -1,12 +1,13 @@
 import argparse
 import os
 import sys
-import torch
-import rdkit
 
-from moses.script_utils import add_train_args, read_smiles_csv, set_seed
-from moses.models_storage import ModelsStorage
+import rdkit
+import torch
+
 from moses.dataset import get_dataset
+from moses.models_storage import ModelsStorage
+from moses.script_utils import add_train_args, read_smiles_csv, set_seed
 
 lg = rdkit.RDLogger.logger()
 lg.setLevel(rdkit.RDLogger.CRITICAL)

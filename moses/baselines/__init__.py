@@ -1,6 +1,5 @@
 from .combinatorial import CombinatorialGenerator
-from .ngram import NGram
 from .hmm import HMM
+from .ngram import NGram
 
-
-__all__ = ["CombinatorialGenerator", "NGram", "HMM"]
+__all__ = ["HMM", "CombinatorialGenerator", "NGram"]
