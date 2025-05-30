@@ -16,46 +16,56 @@
 #
 # peter ertl & greg landrum, september 2013
 #
-from __future__ import print_function
+from __future__ import annotations
 
 import math
 import os.path as op
 import pickle
+from typing import TYPE_CHECKING
 
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
-from rdkit.six import iteritems
+from six import iteritems
 
-_fscores = None
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from rdkit.DataStructs import IntSparseIntVect
+
+_fscores: dict[float, float] | None = None
 
 
-def readFragmentScores(name="fpscores"):
+def readFragmentScores(name: str = "fpscores") -> None:
     import gzip
 
-    global _fscores
+    global _fscores  # noqa: PLW0603
     # generate the full path filename:
     if name == "fpscores":
         name = op.join(op.dirname(__file__), name)
-    _fscores = pickle.load(gzip.open("%s.pkl.gz" % name))
-    outDict = {}
-    for i in _fscores:
+    _loaded_fscores: list[list[float]] = pickle.load(gzip.open("%s.pkl.gz" % name))  # noqa: S301,SIM115
+    outDict: dict[float, float] = {}
+    for i in _loaded_fscores:
         for j in range(1, len(i)):
             outDict[i[j]] = float(i[0])
     _fscores = outDict
 
 
-def numBridgeheadsAndSpiro(mol, ri=None):
+def numBridgeheadsAndSpiro(mol: Chem.Mol, ri: Chem.RingInfo | None = None) -> tuple[int, int]:
     nSpiro = rdMolDescriptors.CalcNumSpiroAtoms(mol)
     nBridgehead = rdMolDescriptors.CalcNumBridgeheadAtoms(mol)
     return nBridgehead, nSpiro
 
 
-def calculateScore(m):
+def calculateScore(m: Chem.Mol) -> float:
     if _fscores is None:
         readFragmentScores()
 
+    if _fscores is None:
+        raise ValueError("Fragment scores not loaded!")
+
     # fragment score
-    fp = rdMolDescriptors.GetMorganFingerprint(
+
+    fp: IntSparseIntVect = rdMolDescriptors.GetMorganFingerprint(
         m,
         2,  # <- 2 is the *radius* of the circular fingerprint
     )
@@ -70,7 +80,7 @@ def calculateScore(m):
 
     # features score
     nAtoms = m.GetNumAtoms()
-    nChiralCenters = len(Chem.FindMolChiralCenters(m, includeUnassigned=True))
+    nChiralCenters = len(Chem.FindMolChiralCenters(m, includeUnassigned=True))  # type: ignore[no-untyped-call]
     ri = m.GetRingInfo()
     nBridgeheads, nSpiro = numBridgeheadsAndSpiro(m, ri)
     nMacrocycles = 0
@@ -85,7 +95,7 @@ def calculateScore(m):
     macrocyclePenalty = 0.0
     # ---------------------------------------
     # This differs from the paper, which defines:
-    #  macrocyclePenalty = math.log10(nMacrocycles+1)
+    #  macrocyclePenalty = math.log10(nMacrocycles+1) # noqa: ERA001
     # This form generates better results when 2 or more macrocycles are present
     if nMacrocycles > 0:
         macrocyclePenalty = math.log10(2)
@@ -102,8 +112,8 @@ def calculateScore(m):
     sascore = score1 + score2 + score3
 
     # need to transform "raw" value into scale between 1 and 10
-    min = -4.0
-    max = 2.5
+    min = -4.0  # noqa: A001
+    max = 2.5  # noqa: A001
     sascore = 11.0 - (sascore - min + 1) / (max - min) * 9.0
     # smooth the 10-end
     if sascore > 8.0:
@@ -113,10 +123,10 @@ def calculateScore(m):
     elif sascore < 1.0:
         sascore = 1.0
 
-    return sascore
+    return sascore  # type: ignore[no-any-return]
 
 
-def processMols(mols):
+def processMols(mols: Sequence[Chem.Mol | None]) -> None:
     print("smiles\tName\tsa_score")
     for m in mols:
         if m is None:

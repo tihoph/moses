@@ -1,15 +1,14 @@
-from __future__ import print_function
-
+# noqa: N999
 import unittest
 
-import sascorer
+import sascorer  # type: ignore[import-not-found]
 from rdkit import Chem
 
 print(sascorer.__file__)
 
 
 class TestCase(unittest.TestCase):
-    def test1(self):
+    def test1(self) -> None:
         with open("data/zim.100.txt") as f:
             testData = [x.strip().split("\t") for x in f]
         testData.pop(0)
@@ -37,6 +36,6 @@ if __name__ == "__main__":
         for methName in dir(TestCase):
             if re.match("_test", methName):
                 newName = re.sub("_test", "test", methName)
-                exec("TestCase.%s = TestCase.%s" % (newName, methName))
+                exec("TestCase.%s = TestCase.%s" % (newName, methName))  # noqa: S102
 
     unittest.main()

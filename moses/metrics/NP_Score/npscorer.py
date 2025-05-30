@@ -14,30 +14,44 @@
 # peter ertl, august 2015
 #
 
-from __future__ import print_function
+from __future__ import annotations
 
 import gzip
 import math
 import os.path
 import pickle
 import sys
-from collections import namedtuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
 
-_fscores = None
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
+    from rdkit.DataStructs import IntSparseIntVect
+
+_fscores: dict[int, float] | None = None
 
 
-def readNPModel(filename=os.path.join(os.path.dirname(__file__), "publicnp.model.gz")):
+class NPLikeness(NamedTuple):
+    nplikeness: float
+    confidence: float
+
+
+def readNPModel(
+    filename: str = os.path.join(os.path.dirname(__file__), "publicnp.model.gz"),
+) -> dict[int, float]:
     """Reads and returns the scoring model,
     which has to be passed to the scoring functions."""
-    global _fscores
-    _fscores = pickle.load(gzip.open(filename))
+    global _fscores  # noqa: PLW0603
+    _fscores = pickle.load(gzip.open(filename))  # noqa: S301,SIM115
+    if _fscores is None:
+        raise ValueError("Fragment scores not loaded!")
     return _fscores
 
 
-def scoreMolWConfidence(mol, fscore):
+def scoreMolWConfidence(mol: Chem.Mol | None, fscore: Mapping[int, float]) -> NPLikeness:
     """Next to the NP Likeness Score, this function outputs a confidence value
     between 0..1 that descibes how many fragments of the tested molecule
     were found in the model data set (1: all fragments were found).
@@ -46,7 +60,8 @@ def scoreMolWConfidence(mol, fscore):
 
     if mol is None:
         raise ValueError("invalid molecule")
-    fp = rdMolDescriptors.GetMorganFingerprint(mol, 2)
+
+    fp: IntSparseIntVect = rdMolDescriptors.GetMorganFingerprint(mol, 2)
     bits = fp.GetNonzeroElements()
 
     # calculating the score
@@ -65,33 +80,36 @@ def scoreMolWConfidence(mol, fscore):
         score = 4.0 + math.log10(score - 4.0 + 1.0)
     elif score < -4:
         score = -4.0 - math.log10(-4.0 - score + 1.0)
-    NPLikeness = namedtuple("NPLikeness", "nplikeness,confidence")
+
     return NPLikeness(score, confidence)
 
 
-def scoreMol(mol, fscore=None):
+def scoreMol(mol: Chem.Mol | None, fscore: Mapping[int, float] | None = None) -> float:
     """Calculates the Natural Product Likeness of a molecule.
 
     Returns the score as float in the range -5..5."""
     if _fscores is None:
         readNPModel()
-    fscore = fscore or _fscores
+    fscore = dict(fscore) if fscore else _fscores
+    if not fscore:
+        raise ValueError("No fingerprint scores available")
+
     return scoreMolWConfidence(mol, fscore).nplikeness
 
 
-def processMols(fscore, suppl):
+def processMols(fscore: Mapping[int, float], suppl: Iterable[Chem.Mol | None]) -> None:
     print("calculating ...", file=sys.stderr)
     n = 0
     for m in suppl:
         if m is None:
             continue
 
-    n += 1
-    score = "%.3f" % scoreMol(m, fscore)
+        n += 1
+        score = "%.3f" % scoreMol(m, fscore)
 
-    smiles = Chem.MolToSmiles(m, True)
-    name = m.GetProp("_Name")
-    print(smiles + "\t" + name + "\t" + score)
+        smiles = Chem.MolToSmiles(m, True)
+        name = m.GetProp("_Name")
+        print(smiles + "\t" + name + "\t" + score)
 
     print("finished, " + str(n) + " molecules processed", file=sys.stderr)
 
