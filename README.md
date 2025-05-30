@@ -287,7 +287,7 @@ git clone https://github.com/molecularsets/moses.git
 
 3. Install MOSES:
 ```bash
-python setup.py install
+pip install ./moses
 ```
 
 4. (Optional) Install dependencies for LatentGAN:
