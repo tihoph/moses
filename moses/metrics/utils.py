@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import os
 from collections import Counter
 from functools import partial
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -8,7 +11,9 @@ import scipy.sparse
 import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem, Descriptors, MACCSkeys
-from rdkit.Chem.AllChem import GetMorganFingerprintAsBitVect as Morgan
+from rdkit.Chem.AllChem import (  # type: ignore[attr-defined]
+    GetMorganFingerprintAsBitVect as Morgan,
+)
 from rdkit.Chem.QED import qed
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
@@ -16,97 +21,106 @@ from moses.metrics.NP_Score import npscorer
 from moses.metrics.SA_Score import sascorer
 from moses.utils import get_mol, mapper
 
+if TYPE_CHECKING:
+    from collections.abc import Collection, Sequence
+    from multiprocessing.pool import Pool
+
+    from numpy.typing import NDArray
+
+DTypeT = TypeVar("DTypeT", bound=np.generic)
+
+
 _base_dir = os.path.split(__file__)[0]
 _mcf = pd.read_csv(os.path.join(_base_dir, "mcf.csv"))
 _pains = pd.read_csv(os.path.join(_base_dir, "wehi_pains.csv"), names=["smarts", "names"])
 _filters = [Chem.MolFromSmarts(x) for x in _mcf.append(_pains, sort=True)["smarts"].values]
 
 
-def canonic_smiles(smiles_or_mol):
+def canonic_smiles(smiles_or_mol: str | Chem.Mol) -> str | None:
     mol = get_mol(smiles_or_mol)
     if mol is None:
         return None
     return Chem.MolToSmiles(mol)
 
 
-def logP(mol):
+def logP(mol: Chem.Mol) -> float:
     """
     Computes RDKit's logP
     """
-    return Chem.Crippen.MolLogP(mol)
+    return Chem.Crippen.MolLogP(mol)  # type: ignore[attr-defined,no-any-return]
 
 
-def SA(mol):
+def SA(mol: Chem.Mol) -> float:
     """
     Computes RDKit's Synthetic Accessibility score
     """
     return sascorer.calculateScore(mol)
 
 
-def NP(mol):
+def NP(mol: Chem.Mol) -> float:
     """
     Computes RDKit's Natural Product-likeness score
     """
     return npscorer.scoreMol(mol)
 
 
-def QED(mol):
+def QED(mol: Chem.Mol) -> float:
     """
     Computes RDKit's QED score
     """
-    return qed(mol)
+    return qed(mol)  # type: ignore[no-untyped-call,no-any-return]
 
 
-def weight(mol):
+def weight(mol: Chem.Mol) -> float:
     """
     Computes molecular weight for given molecule.
     Returns float,
     """
-    return Descriptors.MolWt(mol)
+    return Descriptors.MolWt(mol)  # type: ignore[attr-defined,no-any-return]
 
 
-def get_n_rings(mol):
+def get_n_rings(mol: Chem.Mol) -> int:
     """
     Computes the number of rings in a molecule
     """
     return mol.GetRingInfo().NumRings()
 
 
-def fragmenter(mol):
+def fragmenter(mol: str | Chem.Mol) -> list[str]:
     """
     fragment mol using BRICS and return smiles list
     """
-    fgs = AllChem.FragmentOnBRICSBonds(get_mol(mol))
-    fgs_smi = Chem.MolToSmiles(fgs).split(".")
-    return fgs_smi
+    fgs = AllChem.FragmentOnBRICSBonds(get_mol(mol))  # type: ignore[attr-defined]
+    return Chem.MolToSmiles(fgs).split(".")
 
 
-def compute_fragments(mol_list, n_jobs=1):
+def compute_fragments(mol_list: Sequence[Chem.Mol], n_jobs: Pool | int = 1) -> Counter[str]:
     """
     fragment list of mols using BRICS and return smiles list
     """
-    fragments = Counter()
+    fragments: Counter[str] = Counter()
     for mol_frag in mapper(n_jobs)(fragmenter, mol_list):
         fragments.update(mol_frag)
     return fragments
 
 
-def compute_scaffolds(mol_list, n_jobs=1, min_rings=2):
+def compute_scaffolds(
+    mol_list: Sequence[Chem.Mol], n_jobs: Pool | int = 1, min_rings: int = 2
+) -> Counter[str]:
     """
     Extracts a scafold from a molecule in a form of a canonic SMILES
     """
-    scaffolds = Counter()
     map_ = mapper(n_jobs)
-    scaffolds = Counter(map_(partial(compute_scaffold, min_rings=min_rings), mol_list))
-    if None in scaffolds:
-        scaffolds.pop(None)
-    return scaffolds
+    scaffolds = map_(partial(compute_scaffold, min_rings=min_rings), mol_list)
+    return Counter(scaf for scaf in scaffolds if scaf is not None)
 
 
-def compute_scaffold(mol, min_rings=2):
-    mol = get_mol(mol)
+def compute_scaffold(mol: Chem.Mol, min_rings: int = 2) -> str | None:
+    proc_mol = get_mol(mol)
+    if not proc_mol:
+        return None
     try:
-        scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+        scaffold = MurckoScaffold.GetScaffoldForMol(proc_mol)  # type: ignore[no-untyped-call]
     except (ValueError, RuntimeError):
         return None
     n_rings = get_n_rings(scaffold)
@@ -116,7 +130,14 @@ def compute_scaffold(mol, min_rings=2):
     return scaffold_smiles
 
 
-def average_agg_tanimoto(stock_vecs, gen_vecs, batch_size=5000, agg="max", device="cpu", p=1):
+def average_agg_tanimoto(
+    stock_vecs: NDArray[np.floating[Any]],
+    gen_vecs: NDArray[np.floating[Any]],
+    batch_size: int = 5000,
+    agg: Literal["max", "mean"] = "max",
+    device: str = "cpu",
+    p: float = 1,
+) -> float:
     """
     For each molecule in gen_vecs finds closest molecule in stock_vecs.
     Returns average tanimoto score for between these molecules
@@ -155,18 +176,16 @@ def average_agg_tanimoto(stock_vecs, gen_vecs, batch_size=5000, agg="max", devic
         agg_tanimoto /= total
     if p != 1:
         agg_tanimoto = (agg_tanimoto) ** (1 / p)
-    return np.mean(agg_tanimoto)
+    return np.mean(agg_tanimoto)  # type:ignore[return-value]
 
 
 def fingerprint(
-    smiles_or_mol,
-    fp_type="maccs",
-    dtype=None,
-    morgan__r=2,
-    morgan__n=1024,
-    *args,
-    **kwargs,
-):
+    smiles_or_mol: str | Chem.Mol,
+    fp_type: Literal["maccs", "morgan"] = "maccs",
+    dtype: type[DTypeT] | None = None,
+    morgan__r: int = 2,
+    morgan__n: int = 1024,
+) -> NDArray[np.uint8] | NDArray[DTypeT] | None:
     """
     Generates fingerprint for SMILES
     If smiles is invalid, returns None
@@ -177,18 +196,17 @@ def fingerprint(
         type: type of fingerprint: [MACCS|morgan]
         dtype: if not None, specifies the dtype of returned array
     """
-    fp_type = fp_type.lower()
-    molecule = get_mol(smiles_or_mol, *args, **kwargs)
-    if molecule is None:
+    mol = get_mol(smiles_or_mol)
+    if mol is None:
         return None
     if fp_type == "maccs":
-        keys = MACCSkeys.GenMACCSKeys(molecule)
+        keys = MACCSkeys.GenMACCSKeys(mol)  # type:ignore[attr-defined]
         keys = np.array(keys.GetOnBits())
         fingerprint = np.zeros(166, dtype="uint8")
         if len(keys) != 0:
             fingerprint[keys - 1] = 1  # We drop 0-th key that is always zero
     elif fp_type == "morgan":
-        fingerprint = np.asarray(Morgan(molecule, morgan__r, nBits=morgan__n), dtype="uint8")
+        fingerprint = np.asarray(Morgan(mol, morgan__r, nBits=morgan__n), dtype="uint8")
     else:
         raise ValueError("Unknown fingerprint type {}".format(fp_type))
     if dtype is not None:
@@ -196,7 +214,13 @@ def fingerprint(
     return fingerprint
 
 
-def fingerprints(smiles_mols_array, n_jobs=1, already_unique=False, *args, **kwargs):
+def fingerprints(
+    smiles_mols_array: NDArray[np.str_] | pd.Series[str] | Sequence[Chem.Mol | str],
+    n_jobs: Pool | int = 1,
+    already_unique: bool = False,
+    *args: Any,
+    **kwargs: Any,
+) -> NDArray[Any]:
     """
     Computes fingerprints of smiles np.array/list/pd.Series with n_jobs workers
     e.g.fingerprints(smiles_mols_array, type='morgan', n_jobs=10)
@@ -211,34 +235,46 @@ def fingerprints(smiles_mols_array, n_jobs=1, already_unique=False, *args, **kwa
             contain RDKit molecules already.
     """
     if isinstance(smiles_mols_array, pd.Series):
-        smiles_mols_array = smiles_mols_array.values
+        smiles_mols_array = smiles_mols_array.to_numpy()
     else:
         smiles_mols_array = np.asarray(smiles_mols_array)
     if not isinstance(smiles_mols_array[0], str):
         already_unique = True
 
+    inv_index: NDArray[np.intp] | None = None
     if not already_unique:
         smiles_mols_array, inv_index = np.unique(smiles_mols_array, return_inverse=True)
 
     fps = mapper(n_jobs)(partial(fingerprint, *args, **kwargs), smiles_mols_array)
 
+    first_fp: NDArray[np.uint8] | NDArray[Any] | None = None
     length = 1
     for fp in fps:
         if fp is not None:
             length = fp.shape[-1]
             first_fp = fp
             break
-    fps = [fp if fp is not None else np.array([np.NaN]).repeat(length)[None, :] for fp in fps]
+    fps_ls = [fp if fp is not None else np.array([np.nan]).repeat(length)[None, :] for fp in fps]
+
+    if first_fp is None:
+        raise ValueError("No valid fingerprint found")
+
     if scipy.sparse.issparse(first_fp):
-        fps = scipy.sparse.vstack(fps).tocsr()
+        fps = scipy.sparse.vstack(fps_ls).tocsr()
     else:
-        fps = np.vstack(fps)
+        fps = np.vstack(fps_ls)  # type:ignore[assignment]
     if not already_unique:
-        return fps[inv_index]
-    return fps
+        if inv_index is None:
+            raise RuntimeError("inv_index not calculated")
+        return fps[inv_index]  # type:ignore[return-value]
+    return fps  # type:ignore[return-value]
 
 
-def mol_passes_filters(mol, allowed=None, isomericSmiles=False):
+def mol_passes_filters(
+    mol: str | Chem.Mol,
+    allowed: Collection[str] | None = None,
+    isomericSmiles: bool = False,
+) -> bool:
     """
     Checks if mol
     * passes MCF and PAINS filters,
@@ -246,22 +282,20 @@ def mol_passes_filters(mol, allowed=None, isomericSmiles=False):
     * is not charged
     """
     allowed = allowed or {"C", "N", "S", "O", "F", "Cl", "Br", "H"}
-    mol = get_mol(mol)
-    if mol is None:
+    proc_mol = get_mol(mol)
+    if proc_mol is None:
         return False
-    ring_info = mol.GetRingInfo()
+    ring_info = proc_mol.GetRingInfo()
     if ring_info.NumRings() != 0 and any(len(x) >= 8 for x in ring_info.AtomRings()):
         return False
     h_mol = Chem.AddHs(mol)
-    if any(atom.GetFormalCharge() != 0 for atom in mol.GetAtoms()):
+    if any(atom.GetFormalCharge() != 0 for atom in proc_mol.GetAtoms()):  # type:ignore[call-arg,no-untyped-call]
         return False
-    if any(atom.GetSymbol() not in allowed for atom in mol.GetAtoms()):
+    if any(atom.GetSymbol() not in allowed for atom in proc_mol.GetAtoms()):  # type:ignore[call-arg,no-untyped-call]
         return False
     if any(h_mol.HasSubstructMatch(smarts) for smarts in _filters):
         return False
-    smiles = Chem.MolToSmiles(mol, isomericSmiles=isomericSmiles)
-    if smiles is None or len(smiles) == 0:
+    smiles = Chem.MolToSmiles(proc_mol, isomericSmiles=isomericSmiles)
+    if not smiles:
         return False
-    if Chem.MolFromSmiles(smiles) is None:
-        return False
-    return True
+    return Chem.MolFromSmiles(smiles) is not None
