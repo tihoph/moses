@@ -11,7 +11,7 @@ from moses.metrics.utils import fragmenter
 
 class test_baselines(unittest.TestCase):
     def setUp(self):
-        self.train = moses.get_dataset('train')
+        self.train = moses.get_dataset("train")
 
     def test_hmm(self):
         model = HMM(n_components=5, seed=1)
@@ -23,39 +23,29 @@ class test_baselines(unittest.TestCase):
             model = HMM.load(f.name)
         np.random.seed(1)
         sample_loaded = model.generate_one()
-        self.assertEqual(
-            sample_original, sample_loaded,
-            "Samples before and after saving differ"
-        )
+        self.assertEqual(sample_original, sample_loaded, "Samples before and after saving differ")
 
     def test_combinatorial(self):
         self.assertEqual(
             self.train[0],
-            'CCCS(=O)c1ccc2[nH]c(=NC(=O)OC)[nH]c2c1',
-            "Train set is different: %s" % self.train[0]
+            "CCCS(=O)c1ccc2[nH]c(=NC(=O)OC)[nH]c2c1",
+            "Train set is different: %s" % self.train[0],
         )
-        fragments = fragmenter('CCCS(=O)c1ccc2[nH]c(=NC(=O)OC)[nH]c2c1')
+        fragments = fragmenter("CCCS(=O)c1ccc2[nH]c(=NC(=O)OC)[nH]c2c1")
         self.assertEqual(
             fragments,
-            ['[1*]C(=O)N=c1[nH]c2ccc(S(=O)CCC)cc2[nH]1', '[3*]OC'],
-            "Fragmenter is not working properly: %s" % str(fragments)
+            ["[1*]C(=O)N=c1[nH]c2ccc(S(=O)CCC)cc2[nH]1", "[3*]OC"],
+            "Fragmenter is not working properly: %s" % str(fragments),
         )
         model = CombinatorialGenerator()
         model.fit(self.train[:100])
-        self.assertEqual(
-            model.fragment_counts.shape,
-            (156, 5),
-            "Model was not fitted properly"
-        )
+        self.assertEqual(model.fragment_counts.shape, (156, 5), "Model was not fitted properly")
         sample_original = model.generate_one(1)
         with tempfile.NamedTemporaryFile() as f:
             model.save(f.name)
             model = CombinatorialGenerator.load(f.name)
         sample_loaded = model.generate_one(1)
-        self.assertEqual(
-            sample_original, sample_loaded,
-            "Samples before and after saving differ"
-        )
+        self.assertEqual(sample_original, sample_loaded, "Samples before and after saving differ")
 
     def test_ngram(self):
         model_1 = NGram(1)
@@ -71,15 +61,9 @@ class test_baselines(unittest.TestCase):
             model_l = NGram.load(f.name)
         np.random.seed(0)
         sample_l = model_l.generate_one(context_len=1)
-        self.assertEqual(
-            sample_1, sample_2,
-            "Samples with the same context from two models"
-        )
-        self.assertEqual(
-            sample_1, sample_l,
-            "Samples before and after saving differ"
-        )
+        self.assertEqual(sample_1, sample_2, "Samples with the same context from two models")
+        self.assertEqual(sample_1, sample_l, "Samples before and after saving differ")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

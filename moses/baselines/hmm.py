@@ -6,11 +6,15 @@ import moses
 
 
 class HMM:
-    def __init__(self, n_components=200,
-                 epochs=100,
-                 batches_per_epoch=100,
-                 seed=0, verbose=False,
-                 n_jobs=1):
+    def __init__(
+        self,
+        n_components=200,
+        epochs=100,
+        batches_per_epoch=100,
+        seed=0,
+        verbose=False,
+        n_jobs=1,
+    ):
         """
         Creates a Hidden Markov Model
 
@@ -39,12 +43,16 @@ class HMM:
         """
         list_data = [list(smiles) for smiles in data]
         self.model = HiddenMarkovModel.from_samples(
-            DiscreteDistribution, n_components=self.n_components,
-            end_state=True, X=list_data,
-            init='kmeans||', verbose=self.verbose, n_jobs=self.n_jobs,
+            DiscreteDistribution,
+            n_components=self.n_components,
+            end_state=True,
+            X=list_data,
+            init="kmeans||",
+            verbose=self.verbose,
+            n_jobs=self.n_jobs,
             max_iterations=self.epochs,
             batches_per_epoch=self.batches_per_epoch,
-            random_state=self.seed
+            random_state=self.seed,
         )
         self.fitted = True
         return self
@@ -57,17 +65,19 @@ class HMM:
             path: path to .pkl file for saving
         """
         if not self.fitted:
-            raise RuntimeError("Can't save empty model."
-                               " Fit the model first")
+            raise RuntimeError("Can't save empty model. Fit the model first")
         json = self.model.to_json()
         with open(path, "wb") as f:
-            pickle.dump({
-                'model': json,
-                'n_components': self.n_components,
-                'epochs': self.epochs,
-                'batches_per_epoch': self.batches_per_epoch,
-                'verbose': self.verbose,
-            }, f)
+            pickle.dump(
+                {
+                    "model": json,
+                    "n_components": self.n_components,
+                    "epochs": self.epochs,
+                    "batches_per_epoch": self.batches_per_epoch,
+                    "verbose": self.verbose,
+                },
+                f,
+            )
 
     @classmethod
     def load(cls, path):
@@ -82,8 +92,8 @@ class HMM:
         """
         with open(path, "rb") as f:
             data = pickle.load(f)
-        hmm = data['model']
-        del data['model']
+        hmm = data["model"]
+        del data["model"]
         model = cls(**data)
         model.model = HiddenMarkovModel.from_json(hmm)
         model.fitted = True
@@ -96,13 +106,19 @@ class HMM:
         Retruns:
             SMILES string
         """
-        return ''.join(self.model.sample())
+        return "".join(self.model.sample())
 
 
-def reproduce(seed, samples_path=None, metrics_path=None,
-              n_jobs=1, device='cpu', verbose=False,
-              samples=30000):
-    data = moses.get_dataset('train')[:100000]
+def reproduce(
+    seed,
+    samples_path=None,
+    metrics_path=None,
+    n_jobs=1,
+    device="cpu",
+    verbose=False,
+    samples=30000,
+):
+    data = moses.get_dataset("train")[:100000]
     if verbose:
         print("Training...")
     model = HMM(n_jobs=n_jobs, seed=seed, verbose=verbose)
@@ -111,19 +127,17 @@ def reproduce(seed, samples_path=None, metrics_path=None,
     if verbose:
         print(f"Sampling for seed {seed}")
     np.random.seed(seed)
-    samples = [model.generate_one()
-               for _ in range(samples)]
+    samples = [model.generate_one() for _ in range(samples)]
     if samples_path is not None:
-        with open(samples_path, 'w') as f:
-            f.write('SMILES\n')
+        with open(samples_path, "w") as f:
+            f.write("SMILES\n")
             for sample in samples:
-                f.write(sample+'\n')
+                f.write(sample + "\n")
     if verbose:
         print(f"Computing metrics for seed {seed}")
-    metrics = moses.get_all_metrics(
-        samples, n_jobs=n_jobs, device=device)
+    metrics = moses.get_all_metrics(samples, n_jobs=n_jobs, device=device)
     if metrics_path is not None:
-        with open(samples_path, 'w') as f:
+        with open(samples_path, "w") as f:
             for key, value in metrics.items():
                 f.write("%s,%f\n" % (key, value))
     return samples, metrics
@@ -132,30 +146,44 @@ def reproduce(seed, samples_path=None, metrics_path=None,
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        "Reproduce HMM experiment for one seed (~24h with n_jobs=32)")
+    parser = argparse.ArgumentParser("Reproduce HMM experiment for one seed (~24h with n_jobs=32)")
     parser.add_argument(
-        '--n_jobs', type=int, required=False,
-        default=1, help='Number of threads for computing metrics')
+        "--n_jobs",
+        type=int,
+        required=False,
+        default=1,
+        help="Number of threads for computing metrics",
+    )
     parser.add_argument(
-        '--device', type=str, required=False,
-        default='cpu', help='Device for computing metrics')
+        "--device",
+        type=str,
+        required=False,
+        default="cpu",
+        help="Device for computing metrics",
+    )
     parser.add_argument(
-        '--samples', type=int, required=False,
-        default=30000, help='Number of samples for metrics')
+        "--samples",
+        type=int,
+        required=False,
+        default=30000,
+        help="Number of samples for metrics",
+    )
     parser.add_argument(
-        '--metrics_path', type=str, required=False,
-        default='.', help='Path to save metrics')
-    parser.add_argument(
-        '--seed', type=int, required=False,
-        default=1, help='Random seed')
-    parser.add_argument(
-        '--model_save', type=str, required=False,
-        help='File for saving the model')
+        "--metrics_path",
+        type=str,
+        required=False,
+        default=".",
+        help="Path to save metrics",
+    )
+    parser.add_argument("--seed", type=int, required=False, default=1, help="Random seed")
+    parser.add_argument("--model_save", type=str, required=False, help="File for saving the model")
 
     args = parser.parse_known_args()[0]
     reproduce(
-        seed=args.seed, metrics_path=args.model_save,
-        n_jobs=args.n_jobs, device=args.device,
-        verbose=True, samples=args.samples
+        seed=args.seed,
+        metrics_path=args.model_save,
+        n_jobs=args.n_jobs,
+        device=args.device,
+        verbose=True,
+        samples=args.samples,
     )

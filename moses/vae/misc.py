@@ -29,9 +29,13 @@ class CosineAnnealingLRWithRestart(_LRScheduler):
         super().__init__(optimizer, -1)
 
     def get_lr(self):
-        return [self.lr_end + (base_lr - self.lr_end) *
-                (1 + math.cos(math.pi * self.current_epoch / self.t_end)) / 2
-                for base_lr in self.base_lrs]
+        return [
+            self.lr_end
+            + (base_lr - self.lr_end)
+            * (1 + math.cos(math.pi * self.current_epoch / self.t_end))
+            / 2
+            for base_lr in self.base_lrs
+        ]
 
     def step(self, epoch=None):
         if epoch is None:
@@ -40,7 +44,7 @@ class CosineAnnealingLRWithRestart(_LRScheduler):
         self.current_epoch += 1
 
         for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
-            param_group['lr'] = lr
+            param_group["lr"] = lr
 
         if self.current_epoch == self.t_end:
             self.current_epoch = 0

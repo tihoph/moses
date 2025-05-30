@@ -28,8 +28,7 @@ from rdkit.Chem import rdMolDescriptors
 _fscores = None
 
 
-def readNPModel(filename=os.path.join(os.path.dirname(__file__),
-                                      'publicnp.model.gz')):
+def readNPModel(filename=os.path.join(os.path.dirname(__file__), "publicnp.model.gz")):
     """Reads and returns the scoring model,
     which has to be passed to the scoring functions."""
     global _fscores
@@ -45,7 +44,7 @@ def scoreMolWConfidence(mol, fscore):
     Returns namedtuple NPLikeness(nplikeness, confidence)"""
 
     if mol is None:
-        raise ValueError('invalid molecule')
+        raise ValueError("invalid molecule")
     fp = rdMolDescriptors.GetMorganFingerprint(mol, 2)
     bits = fp.GetNonzeroElements()
 
@@ -62,9 +61,9 @@ def scoreMolWConfidence(mol, fscore):
 
     # preventing score explosion for exotic molecules
     if score > 4:
-        score = 4. + math.log10(score - 4. + 1.)
+        score = 4.0 + math.log10(score - 4.0 + 1.0)
     elif score < -4:
-        score = -4. - math.log10(-4. - score + 1.)
+        score = -4.0 - math.log10(-4.0 - score + 1.0)
     NPLikeness = namedtuple("NPLikeness", "nplikeness,confidence")
     return NPLikeness(score, confidence)
 
@@ -90,18 +89,16 @@ def processMols(fscore, suppl):
     score = "%.3f" % scoreMol(m, fscore)
 
     smiles = Chem.MolToSmiles(m, True)
-    name = m.GetProp('_Name')
+    name = m.GetProp("_Name")
     print(smiles + "\t" + name + "\t" + score)
 
     print("finished, " + str(n) + " molecules processed", file=sys.stderr)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     fscore = readNPModel()  # fills fscore
 
-    suppl = Chem.SmilesMolSupplier(
-        sys.argv[1], smilesColumn=0, nameColumn=1, titleLine=False
-    )
+    suppl = Chem.SmilesMolSupplier(sys.argv[1], smilesColumn=0, nameColumn=1, titleLine=False)
     processMols(fscore, suppl)
 
 #

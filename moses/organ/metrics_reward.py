@@ -2,17 +2,36 @@ import random
 from collections import Counter
 import numpy as np
 
-from moses.metrics import remove_invalid, \
-                          fraction_passes_filters, internal_diversity, \
-                          FCDMetric, SNNMetric, FragMetric, ScafMetric, \
-                          WassersteinMetric, logP, QED, SA, weight
+from moses.metrics import (
+    remove_invalid,
+    fraction_passes_filters,
+    internal_diversity,
+    FCDMetric,
+    SNNMetric,
+    FragMetric,
+    ScafMetric,
+    WassersteinMetric,
+    logP,
+    QED,
+    SA,
+    weight,
+)
 from moses.utils import mapper, get_mol
 
 
 class MetricsReward:
-    supported_metrics = ['fcd', 'snn', 'fragments', 'scaffolds',
-                         'internal_diversity', 'filters',
-                         'logp', 'sa', 'qed', 'weight']
+    supported_metrics = [
+        "fcd",
+        "snn",
+        "fragments",
+        "scaffolds",
+        "internal_diversity",
+        "filters",
+        "logp",
+        "sa",
+        "qed",
+        "weight",
+    ]
 
     @staticmethod
     def _nan2zero(value):
@@ -50,36 +69,26 @@ class MetricsReward:
 
         if len(self.metrics):
             for metric_name in self.metrics:
-                if metric_name == 'fcd':
+                if metric_name == "fcd":
                     m = FCDMetric(n_jobs=self.n_jobs)(ref, rollout)
-                elif metric_name == 'morgan':
+                elif metric_name == "morgan":
                     m = SNNMetric(n_jobs=self.n_jobs)(ref_mols, rollout_mols)
-                elif metric_name == 'fragments':
+                elif metric_name == "fragments":
                     m = FragMetric(n_jobs=self.n_jobs)(ref_mols, rollout_mols)
-                elif metric_name == 'scaffolds':
+                elif metric_name == "scaffolds":
                     m = ScafMetric(n_jobs=self.n_jobs)(ref_mols, rollout_mols)
-                elif metric_name == 'internal_diversity':
+                elif metric_name == "internal_diversity":
                     m = internal_diversity(rollout_mols, n_jobs=self.n_jobs)
-                elif metric_name == 'filters':
-                    m = fraction_passes_filters(
-                        rollout_mols, n_jobs=self.n_jobs
-                    )
-                elif metric_name == 'logp':
-                    m = -WassersteinMetric(func=logP, n_jobs=self.n_jobs)(
-                        ref_mols, rollout_mols
-                    )
-                elif metric_name == 'sa':
-                    m = -WassersteinMetric(func=SA, n_jobs=self.n_jobs)(
-                        ref_mols, rollout_mols
-                    )
-                elif metric_name == 'qed':
-                    m = -WassersteinMetric(func=QED, n_jobs=self.n_jobs)(
-                        ref_mols, rollout_mols
-                    )
-                elif metric_name == 'weight':
-                    m = -WassersteinMetric(func=weight, n_jobs=self.n_jobs)(
-                        ref_mols, rollout_mols
-                    )
+                elif metric_name == "filters":
+                    m = fraction_passes_filters(rollout_mols, n_jobs=self.n_jobs)
+                elif metric_name == "logp":
+                    m = -WassersteinMetric(func=logP, n_jobs=self.n_jobs)(ref_mols, rollout_mols)
+                elif metric_name == "sa":
+                    m = -WassersteinMetric(func=SA, n_jobs=self.n_jobs)(ref_mols, rollout_mols)
+                elif metric_name == "qed":
+                    m = -WassersteinMetric(func=QED, n_jobs=self.n_jobs)(ref_mols, rollout_mols)
+                elif metric_name == "weight":
+                    m = -WassersteinMetric(func=weight, n_jobs=self.n_jobs)(ref_mols, rollout_mols)
 
                 m = MetricsReward._nan2zero(m)
                 for i in range(len(rollout)):
@@ -88,7 +97,6 @@ class MetricsReward:
         return result
 
     def __call__(self, gen, ref, ref_mols):
-
         idxs = random.sample(range(len(ref)), self.n_ref_subsample)
         ref_subsample = [ref[idx] for idx in idxs]
         ref_mols_subsample = [ref_mols[idx] for idx in idxs]
@@ -99,14 +107,10 @@ class MetricsReward:
         n = len(gen) // self.n_rollouts
         rollouts = [gen[i::n] for i in range(n)]
 
-        metrics_values = [self._get_metrics(
-            ref_subsample, ref_mols_subsample, rollout
-        ) for rollout in rollouts]
-        metrics_values = map(
-            lambda rm: [
-                sum(r, 0) / len(r)
-                for r in rm
-            ], metrics_values)
+        metrics_values = [
+            self._get_metrics(ref_subsample, ref_mols_subsample, rollout) for rollout in rollouts
+        ]
+        metrics_values = map(lambda rm: [sum(r, 0) / len(r) for r in rm], metrics_values)
         reward_values = sum(zip(*metrics_values), ())
         reward_values = [v / c for v, c in zip(reward_values, gen_counts)]
 

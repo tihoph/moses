@@ -12,11 +12,9 @@ class LatentGAN(nn.Module):
     def __init__(self, vocabulary, config):
         super(LatentGAN, self).__init__()
         self.vocabulary = vocabulary
-        self.Generator = Generator(
-            data_shape=(1, config.latent_vector_dim))
+        self.Generator = Generator(data_shape=(1, config.latent_vector_dim))
         self.model_version = config.heteroencoder_version
-        self.Discriminator = Discriminator(
-            data_shape=(1, config.latent_vector_dim))
+        self.Discriminator = Discriminator(data_shape=(1, config.latent_vector_dim))
         self.sample_decoder = None
         self.model_loaded = False
         self.new_batch_size = 256
@@ -32,26 +30,22 @@ class LatentGAN(nn.Module):
         return out
 
     def encode_smiles(self, smiles_in, encoder=None):
-
         model = load_model(model_version=encoder)
 
         # MUST convert SMILES to binary mols for the model to accept them
         # (it re-converts them to SMILES internally)
-        mols_in = [Chem.rdchem.Mol.ToBinary(Chem.MolFromSmiles(smiles))
-                   for smiles in smiles_in]
+        mols_in = [Chem.rdchem.Mol.ToBinary(Chem.MolFromSmiles(smiles)) for smiles in smiles_in]
         latent = model.transform(model.vectorize(mols_in))
 
         return latent.tolist()
 
-    def compute_gradient_penalty(self, real_samples,
-                                 fake_samples, discriminator):
+    def compute_gradient_penalty(self, real_samples, fake_samples, discriminator):
         """Calculates the gradient penalty loss for WGAN GP"""
         # Random weight term for interpolation between real and fake samples
         alpha = self.Tensor(np.random.random((real_samples.size(0), 1)))
 
         # Get random interpolation between real and fake samples
-        interpolates = (alpha * real_samples +
-                        ((1 - alpha) * fake_samples)).requires_grad_(True)
+        interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
         d_interpolates = discriminator(interpolates)
         fake = self.Tensor(real_samples.shape[0], 1).fill_(1.0)
 
@@ -76,7 +70,7 @@ class LatentGAN(nn.Module):
     def sample(self, n_batch, max_length=100):
         if not self.model_loaded:
             # Checking for first batch of model to only load model once
-            print('Heteroencoder for Sampling Loaded')
+            print("Heteroencoder for Sampling Loaded")
             self.sample_decoder = load_model(model_version=self.model_version)
             # load generator
 
@@ -93,9 +87,11 @@ class LatentGAN(nn.Module):
             self.model_loaded = True
 
             if n_batch <= 256:
-                print('Batch size of {} detected. Decoding '
-                      'performs poorly when Batch size != 256. \
-                 Setting batch size to 256'.format(n_batch))
+                print(
+                    "Batch size of {} detected. Decoding "
+                    "performs poorly when Batch size != 256. \
+                 Setting batch size to 256".format(n_batch)
+                )
         # Sampling performs very poorly on default sampling batch parameters.
         #  This takes care of the default scenario.
         if n_batch == 32:
@@ -124,19 +120,20 @@ def load_model(model_version=None):
     # Import model
     currentDirectory = os.getcwd()
 
-    if model_version == 'chembl':
-        model_name = 'chembl_pretrained'
-    elif model_version == 'moses':
-        model_name = 'moses_pretrained'
-    elif model_version == 'new':
-        model_name = 'new_model'
+    if model_version == "chembl":
+        model_name = "chembl_pretrained"
+    elif model_version == "moses":
+        model_name = "moses_pretrained"
+    elif model_version == "new":
+        model_name = "new_model"
     else:
-        print('No predefined model of that name found. '
-              'using the default pre-trained MOSES heteroencoder')
-        model_name = 'moses_pretrained'
+        print(
+            "No predefined model of that name found. "
+            "using the default pre-trained MOSES heteroencoder"
+        )
+        model_name = "moses_pretrained"
 
-    path = '{}/moses/latentgan/heteroencoder_models/{}' \
-        .format(currentDirectory, model_name)
+    path = "{}/moses/latentgan/heteroencoder_models/{}".format(currentDirectory, model_name)
     print("Loading heteroencoder model titled {}".format(model_version))
     print("Path to model file: {}".format(path))
     model = ddc.DDC(model_name=path)
@@ -181,8 +178,7 @@ class Generator(nn.Module):
 
         # latent dim of the generator is one of the hyperparams.
         # by default it is set to the prod of data_shapes
-        self.latent_dim = int(np.prod(self.data_shape)) \
-            if latent_dim is None else latent_dim
+        self.latent_dim = int(np.prod(self.data_shape)) if latent_dim is None else latent_dim
 
         def block(in_feat, out_feat, normalize=True):
             layers = [nn.Linear(in_feat, out_feat)]
@@ -216,7 +212,6 @@ class Sampler(object):
 
     def sample(self, n):
         # Sample noise as generator input
-        z = torch.cuda.FloatTensor(np.random.uniform(-1, 1,
-                                                     (n, self.G.latent_dim)))
+        z = torch.cuda.FloatTensor(np.random.uniform(-1, 1, (n, self.G.latent_dim)))
         # Generate a batch of mols
         return self.G(z)
