@@ -1,26 +1,45 @@
+from __future__ import annotations
+
 import os
 import sys
 from collections import Counter
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 import torch
-import torch.optim as optim
 from rdkit import Chem
+from torch import optim
 from tqdm.auto import tqdm
+from typing_extensions import override
 
 from moses.interfaces import MosesTrainer
 from moses.utils import CharVocab, Logger
 
-from .model import LatentMolsDataset, Sampler, load_model
+from .model import LatentGAN, LatentMolsDataset, Sampler, load_model
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    from numpy.typing import NDArray
+    from torch.optim import Optimizer
+    from torch.utils.data import DataLoader
+
+    from .config import LatentGANConfig
 
 
 class LatentGANTrainer(MosesTrainer):
-    def __init__(self, config):
+    def __init__(self, config: LatentGANConfig) -> None:
         self.config = config
         self.latent_size = self.config.latent_vector_dim
 
-    def _train_epoch(self, model, tqdm_data, optimizer_disc=None, optimizer_gen=None):
+    def _train_epoch(
+        self,
+        model: LatentGAN,
+        tqdm_data: tqdm[torch.Tensor],
+        optimizer_disc: Optimizer | None = None,
+        optimizer_gen: Optimizer | None = None,
+    ) -> dict[str, Any]:
         if optimizer_disc is None:
             model.eval()
             optimizer_gen = None
@@ -28,7 +47,7 @@ class LatentGANTrainer(MosesTrainer):
             model.train()
         self.Sampler = Sampler(generator=self.generator)
 
-        postfix = {"generator_loss": 0, "discriminator_loss": 0}
+        postfix: dict[str, Any] = {"generator_loss": 0, "discriminator_loss": 0}
         disc_loss_batch = []
         g_loss_batch = []
 
@@ -53,6 +72,9 @@ class LatentGANTrainer(MosesTrainer):
 
             disc_loss_batch.append(d_loss.item())
 
+            if optimizer_gen is None:
+                raise ValueError("Optimizer for generator is None")
+
             if optimizer_disc is not None:
                 d_loss.backward()
                 optimizer_disc.step()
@@ -72,7 +94,7 @@ class LatentGANTrainer(MosesTrainer):
                     fake_validity = self.discriminator(fake_mols)
                     g_loss = -torch.mean(fake_validity)
 
-                    g_loss.backward()
+                    g_loss.backward()  # type: ignore[no-untyped-call]
                     optimizer_gen.step()
 
                     g_loss_batch.append(g_loss.item())
@@ -83,7 +105,13 @@ class LatentGANTrainer(MosesTrainer):
         postfix["mode"] = "Eval" if optimizer_disc is None else "Train"
         return postfix
 
-    def _train(self, model, train_loader, val_loader=None, logger=None):
+    def _train(
+        self,
+        model: LatentGAN,
+        train_loader: DataLoader[str],
+        val_loader: DataLoader[str] | None = None,
+        logger: Logger | None = None,
+    ) -> None:
         device = model.device
         optimizer_disc = optim.Adam(
             self.discriminator.parameters(),
@@ -104,12 +132,13 @@ class LatentGANTrainer(MosesTrainer):
         sys.stdout.flush()
 
         for epoch in range(self.config.train_epochs):
-            scheduler_disc.step()
-            scheduler_gen.step()
-
             tqdm_data = tqdm(train_loader, desc="Training (epoch #{})".format(epoch))
 
             postfix = self._train_epoch(model, tqdm_data, optimizer_disc, optimizer_gen)
+
+            scheduler_disc.step()
+            scheduler_gen.step()
+
             if logger is not None:
                 logger.append(postfix)
                 logger.save(self.config.log_file)
@@ -130,19 +159,24 @@ class LatentGANTrainer(MosesTrainer):
                 )
                 model = model.to(device)
 
-    def get_vocabulary(self, data):
+    @override
+    def get_vocabulary(self, data: NDArray[np.str_] | Sequence[str]) -> CharVocab:
         return CharVocab.from_data(data)
 
-    def get_collate_fn(self, model):
+    @override
+    def get_collate_fn(  # type: ignore[override]
+        self, model: LatentGAN
+    ) -> Callable[[Sequence[float]], torch.Tensor]:
         device = self.get_collate_device(model)
 
-        def collate(data):
-            tensors = torch.tensor([t for t in data], dtype=torch.float64, device=device)
-            return tensors
+        def collate(data: Sequence[float]) -> torch.Tensor:
+            return torch.tensor(list(data), dtype=torch.float64, device=device)
 
         return collate
 
-    def _get_dataset_info(self, data, name=None):
+    def _get_dataset_info(
+        self, data: NDArray[np.str_] | Sequence[str], name: str | None = None
+    ) -> dict[str, Any]:
         df = pd.DataFrame(data)
         maxlen = df.iloc[:, 0].map(len).max()
         ctr = Counter("".join(df.unstack().values))
@@ -151,12 +185,18 @@ class LatentGANTrainer(MosesTrainer):
             charset += c
         return {"maxlen": maxlen, "charset": charset, "name": name}
 
-    def fit(self, model, train_data, val_data=None):
+    @override
+    def fit(  # type: ignore[override]
+        self,
+        model: LatentGAN,
+        train_data: NDArray[np.str_] | Sequence[str],
+        val_data: NDArray[np.str_] | Sequence[str] | None = None,
+    ) -> LatentGAN:
         from ddc_pub import ddc_v3 as ddc
 
         self.generator = model.Generator
         self.discriminator = model.Discriminator
-        cuda = True if torch.cuda.is_available() else False
+        cuda = torch.cuda.is_available()
         if cuda:
             self.discriminator.cuda()
             self.generator.cuda()
@@ -217,17 +257,13 @@ class LatentGANTrainer(MosesTrainer):
 
         latent_train = latent_train.reshape(latent_train.shape[0], self.latent_size)
 
+        val_loader: DataLoader[str] | None = None
         if val_data is not None:
             mols_val = [Chem.rdchem.Mol.ToBinary(Chem.MolFromSmiles(smiles)) for smiles in val_data]
             latent_val = heteroencoder.transform(heteroencoder.vectorize(mols_val))
             latent_val = latent_val.reshape(latent_val.shape[0], self.latent_size)
-
+            val_loader = self.get_dataloader(model, LatentMolsDataset(latent_val), shuffle=False)
         train_loader = self.get_dataloader(model, LatentMolsDataset(latent_train), shuffle=True)
-        val_loader = (
-            None
-            if val_data is None
-            else self.get_dataloader(model, LatentMolsDataset(latent_val), shuffle=False)
-        )
 
         self._train(model, train_loader, val_loader, logger)
         return model
