@@ -1,31 +1,57 @@
+from __future__ import annotations
+
 import random
+from typing import TYPE_CHECKING, Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
+from torch.nn.modules.loss import _Loss as Loss
 from torch.nn.utils.rnn import pad_sequence
 from tqdm.auto import tqdm
+from typing_extensions import override
 
 from moses.interfaces import MosesTrainer
 from moses.utils import CharVocab, Logger
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
 
-class PolicyGradientLoss(nn.Module):
-    def forward(self, outputs, targets, rewards, lengths):
+    import numpy as np
+    from numpy.typing import NDArray
+    from torch.optim import Optimizer
+    from torch.utils.data import DataLoader
+
+    from .config import ORGANConfig
+    from .model import ORGAN
+
+
+class PolicyGradientLoss(Loss):
+    @override
+    def forward(
+        self,
+        outputs: torch.Tensor,
+        targets: torch.Tensor,
+        rewards: torch.Tensor,
+        lengths: torch.Tensor,
+    ) -> torch.Tensor:
         log_probs = F.log_softmax(outputs, dim=2)
         items = torch.gather(log_probs, 2, targets.unsqueeze(2)) * rewards.unsqueeze(2)
-        loss = -sum([t[:l].sum() for t, l in zip(items, lengths)]) / lengths.sum().float()
-        return loss
+        return (  # type: ignore[no-any-return]
+            -sum([t[:l].sum() for t, l in zip(items, lengths)]) / lengths.sum().float()
+        )
 
 
 class ORGANTrainer(MosesTrainer):
-    def __init__(self, config):
+    def __init__(self, config: ORGANConfig) -> None:
         self.config = config
 
-    def generator_collate_fn(self, model):
+    def generator_collate_fn(
+        self, model: ORGAN
+    ) -> Callable[[list[str]], tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         device = self.get_collate_device(model)
 
-        def collate(data):
+        def collate(data: list[str]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             data.sort(key=len, reverse=True)
             tensors = [model.string2tensor(string, device=device) for string in data]
 
@@ -37,27 +63,37 @@ class ORGANTrainer(MosesTrainer):
 
         return collate
 
-    def get_vocabulary(self, data):
+    @override
+    def get_vocabulary(self, data: NDArray[np.str_] | Sequence[str]) -> CharVocab:
         return CharVocab.from_data(data)
 
-    def _pretrain_generator_epoch(self, model, tqdm_data, criterion, optimizer=None):
+    def _pretrain_generator_epoch(
+        self,
+        model: ORGAN,
+        tqdm_data: tqdm[tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+        criterion: Loss,
+        optimizer: Optimizer | None = None,
+    ) -> dict[str, Any]:
         model.discriminator.eval()
         if optimizer is None:
             model.generator.eval()
         else:
             model.generator.train()
 
-        postfix = {"loss": 0, "running_loss": 0}
+        postfix: dict[str, Any] = {"loss": 0, "running_loss": 0}
 
-        for i, batch in enumerate(tqdm_data):
-            (prevs, nexts, lens) = (data.to(model.device) for data in batch)
+        for i, (prevs, nexts, lens) in enumerate(tqdm_data):
+            prevs = prevs.to(model.device)
+            nexts = nexts.to(model.device)
+            lens = lens.to("cpu")
+
             outputs, _, _ = model.generator_forward(prevs, lens)
 
-            loss = criterion(outputs.view(-1, outputs.shape[-1]), nexts.view(-1))
+            loss: torch.Tensor = criterion(outputs.view(-1, outputs.shape[-1]), nexts.view(-1))
 
             if optimizer is not None:
                 optimizer.zero_grad()
-                loss.backward()
+                loss.backward()  # type:ignore[no-untyped-call]
                 optimizer.step()
 
             postfix["loss"] = loss.item()
@@ -69,7 +105,13 @@ class ORGANTrainer(MosesTrainer):
         )
         return postfix
 
-    def _pretrain_generator(self, model, train_loader, val_loader=None, logger=None):
+    def _pretrain_generator(
+        self,
+        model: ORGAN,
+        train_loader: DataLoader[str],
+        val_loader: DataLoader[str] | None = None,
+        logger: Logger | None = None,
+    ) -> None:
         device = model.device
         generator = model.generator
         criterion = nn.CrossEntropyLoss(ignore_index=model.vocabulary.pad)
@@ -98,14 +140,20 @@ class ORGANTrainer(MosesTrainer):
                 )
                 generator = generator.to(device)
 
-    def _pretrain_discriminator_epoch(self, model, tqdm_data, criterion, optimizer=None):
+    def _pretrain_discriminator_epoch(
+        self,
+        model: ORGAN,
+        tqdm_data: tqdm,
+        criterion: Loss,
+        optimizer: Optimizer | None = None,
+    ) -> dict[str, Any]:
         model.generator.eval()
         if optimizer is None:
             model.discriminator.eval()
         else:
             model.discriminator.train()
 
-        postfix = {"loss": 0, "running_loss": 0}
+        postfix: dict[str, Any] = {"loss": 0, "running_loss": 0}
 
         for i, inputs_from_data in enumerate(tqdm_data):
             inputs_from_data = inputs_from_data.to(model.device)
@@ -113,7 +161,7 @@ class ORGANTrainer(MosesTrainer):
 
             targets = torch.zeros(self.config.n_batch, 1, device=model.device)
             outputs = model.discriminator_forward(inputs_from_model)
-            loss = criterion(outputs, targets) / 2
+            loss: torch.Tensor = criterion(outputs, targets) / 2
 
             targets = torch.ones(inputs_from_data.shape[0], 1, device=model.device)
             outputs = model.discriminator_forward(inputs_from_data)
@@ -121,7 +169,7 @@ class ORGANTrainer(MosesTrainer):
 
             if optimizer is not None:
                 optimizer.zero_grad()
-                loss.backward()
+                loss.backward()  # type:ignore[no-untyped-call]
                 optimizer.step()
 
             postfix["loss"] = loss.item()
@@ -133,18 +181,23 @@ class ORGANTrainer(MosesTrainer):
         )
         return postfix
 
-    def discriminator_collate_fn(self, model):
+    def discriminator_collate_fn(self, model: ORGAN) -> Callable[[list[str]], torch.Tensor]:
         device = self.get_collate_device(model)
 
-        def collate(data):
+        def collate(data: list[str]) -> torch.Tensor:
             data.sort(key=len, reverse=True)
             tensors = [model.string2tensor(string, device=device) for string in data]
-            inputs = pad_sequence(tensors, batch_first=True, padding_value=model.vocabulary.pad)
-            return inputs
+            return pad_sequence(tensors, batch_first=True, padding_value=model.vocabulary.pad)
 
         return collate
 
-    def _pretrain_discriminator(self, model, train_loader, val_loader=None, logger=None):
+    def _pretrain_discriminator(
+        self,
+        model: ORGAN,
+        train_loader: DataLoader[str],
+        val_loader: DataLoader[str] | None = None,
+        logger: Logger | None = None,
+    ) -> None:
         device = model.device
         discriminator = model.discriminator
         criterion = nn.BCEWithLogitsLoss()
@@ -176,11 +229,21 @@ class ORGANTrainer(MosesTrainer):
                 )
                 discriminator = discriminator.to(device)
 
-    def _policy_gradient_iter(self, model, train_loader, criterion, optimizer, iter_):
+    def _policy_gradient_iter(
+        self,
+        model: ORGAN,
+        train_loader: DataLoader[str],
+        criterion: Mapping[str, Loss],
+        optimizer: Mapping[str, Optimizer],
+        iter_: int,
+    ) -> dict[str, Any]:
+        if not self.ref_smiles or not self.ref_mols:
+            raise RuntimeError("Reference smiles not set. Please set it before training.")
+
         smooth = self.config.pg_smooth_const if iter_ > 0 else 1
 
         # Generator
-        gen_postfix = {"generator_loss": 0, "smoothed_reward": 0}
+        gen_postfix: dict[str, Any] = {"generator_loss": 0, "smoothed_reward": 0}
 
         gen_tqdm = tqdm(
             range(self.config.generator_updates),
@@ -202,13 +265,15 @@ class ORGANTrainer(MosesTrainer):
             rewards = rewards[indices, ...]
 
             generator_outputs, lengths, _ = model.generator_forward(sequences[:, :-1], lengths - 1)
-            generator_loss = criterion["generator"](
+            generator_loss: torch.Tensor = criterion["generator"](
                 generator_outputs, sequences[:, 1:], rewards, lengths
             )
 
             optimizer["generator"].zero_grad()
-            generator_loss.backward()
-            nn.utils.clip_grad_value_(model.generator.parameters(), self.config.clip_grad)
+            generator_loss.backward()  # type: ignore[no-untyped-call]
+            nn.utils.clip_grad_value_(  # type: ignore[attr-defined]
+                model.generator.parameters(), self.config.clip_grad
+            )
             optimizer["generator"].step()
 
             gen_postfix["generator_loss"] += (
@@ -221,7 +286,7 @@ class ORGANTrainer(MosesTrainer):
             gen_tqdm.set_postfix(gen_postfix)
 
         # Discriminator
-        discrim_postfix = {"discrim-r_loss": 0}
+        discrim_postfix: dict[str, Any] = {"discrim-r_loss": 0}
         discrim_tqdm = tqdm(
             range(self.config.discriminator_updates),
             desc="PG discrim-r training (iter #{})".format(iter_),
@@ -242,11 +307,17 @@ class ORGANTrainer(MosesTrainer):
 
                     discrim_outputs = model.discriminator_forward(inputs_from_model)
                     discrim_targets = torch.zeros(len(discrim_outputs), 1, device=model.device)
-                    discrim_loss = criterion["discriminator"](discrim_outputs, discrim_targets) / 2
+                    discrim_fake_loss: torch.Tensor = (
+                        criterion["discriminator"](discrim_outputs, discrim_targets) / 2
+                    )
 
                     discrim_outputs = model.discriminator_forward(inputs_from_data)
                     discrim_targets = torch.ones(len(discrim_outputs), 1, device=model.device)
-                    discrim_loss += criterion["discriminator"](discrim_outputs, discrim_targets) / 2
+                    discrim_real_loss: torch.Tensor = (
+                        criterion["discriminator"](discrim_outputs, discrim_targets) / 2
+                    )
+                    discrim_loss = discrim_fake_loss + discrim_real_loss
+
                     optimizer["discriminator"].zero_grad()
                     discrim_loss.backward()
                     optimizer["discriminator"].step()
@@ -261,15 +332,17 @@ class ORGANTrainer(MosesTrainer):
         postfix["mode"] = "Policy Gradient (iter #{})".format(iter_)
         return postfix
 
-    def _train_policy_gradient(self, model, train_loader, logger=None):
+    def _train_policy_gradient(
+        self, model: ORGAN, train_loader: DataLoader[str], logger: Logger | None = None
+    ) -> None:
         device = model.device
 
-        criterion = {
+        criterion: dict[str, Loss] = {
             "generator": PolicyGradientLoss(),
             "discriminator": nn.BCEWithLogitsLoss(),
         }
 
-        optimizer = {
+        optimizer: dict[str, Optimizer] = {
             "generator": torch.optim.Adam(model.generator.parameters(), lr=self.config.lr),
             "discriminator": torch.optim.Adam(model.discriminator.parameters(), lr=self.config.lr),
         }
@@ -289,7 +362,13 @@ class ORGANTrainer(MosesTrainer):
                 )
                 model = model.to(device)
 
-    def fit(self, model, train_data, val_data=None):
+    @override
+    def fit(  # type: ignore[override]
+        self,
+        model: ORGAN,
+        train_data: NDArray[np.str_] | Sequence[str],
+        val_data: NDArray[np.str_] | Sequence[str] | None = None,
+    ) -> ORGAN:
         logger = Logger() if self.config.log_file is not None else None
 
         # Generator

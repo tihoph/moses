@@ -1,17 +1,37 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from typing_extensions import override
 
 from moses.organ.metrics_reward import MetricsReward
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from rdkit import Chem
+
+    from moses.utils import CharVocab, LstmOutT
+
+    from .config import ORGANConfig
+
 
 class Generator(nn.Module):
-    def __init__(self, embedding_layer, hidden_size, num_layers, dropout):
-        super(Generator, self).__init__()
+    def __init__(
+        self,
+        embedding_layer: nn.Embedding,
+        hidden_size: int,
+        num_layers: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
 
         self.embedding_layer = embedding_layer
-        self.lstm_layer = nn.LSTM(
+        self.lstm_layer = nn.LSTM(  # type: ignore[no-untyped-call]
             embedding_layer.embedding_dim,
             hidden_size,
             num_layers,
@@ -20,19 +40,31 @@ class Generator(nn.Module):
         )
         self.linear_layer = nn.Linear(hidden_size, embedding_layer.num_embeddings)
 
-    def forward(self, x, lengths, states=None):
+    @override
+    def forward(
+        self,
+        x: torch.Tensor,
+        lengths: torch.Tensor,
+        states: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         x = self.embedding_layer(x)
-        x = pack_padded_sequence(x, lengths, batch_first=True)
-        x, states = self.lstm_layer(x, states)
-        x, _ = pad_packed_sequence(x, batch_first=True)
+        packed_x = pack_padded_sequence(x, lengths, batch_first=True)
+        lstm_out: LstmOutT = self.lstm_layer(packed_x, states)
+        packed_x, states = lstm_out
+        x, _ = pad_packed_sequence(packed_x, batch_first=True)
         x = self.linear_layer(x)
 
         return x, lengths, states
 
 
 class Discriminator(nn.Module):
-    def __init__(self, embedding_layer, convs, dropout=0):
-        super(Discriminator, self).__init__()
+    def __init__(
+        self,
+        embedding_layer: nn.Embedding,
+        convs: Sequence[tuple[int, int]],
+        dropout: float = 0,
+    ) -> None:
+        super().__init__()
 
         self.embedding_layer = embedding_layer
         self.conv_layers = nn.ModuleList(
@@ -43,26 +75,27 @@ class Discriminator(nn.Module):
         self.dropout_layer = nn.Dropout(p=dropout)
         self.output_layer = nn.Linear(sum_filters, 1)
 
-    def forward(self, x):
+    @override
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.embedding_layer(x)
         x = x.unsqueeze(1)
 
         convs = [F.elu(conv_layer(x)).squeeze(3) for conv_layer in self.conv_layers]
-        x = [F.max_pool1d(c, c.shape[2]).squeeze(2) for c in convs]
-        x = torch.cat(x, dim=1)
+        x_ls = [F.max_pool1d(c, c.shape[2]).squeeze(2) for c in convs]
+        x = torch.cat(x_ls, dim=1)
 
-        h = self.highway_layer(x)
+        h: torch.Tensor = self.highway_layer(x)
         t = torch.sigmoid(h)
         x = t * F.elu(h) + (1 - t) * x
         x = self.dropout_layer(x)
-        out = self.output_layer(x)
+        out: torch.Tensor = self.output_layer(x)
 
         return out
 
 
 class ORGAN(nn.Module):
-    def __init__(self, vocabulary, config):
-        super(ORGAN, self).__init__()
+    def __init__(self, vocabulary: CharVocab, config: ORGANConfig) -> None:
+        super().__init__()
 
         self.metrics_reward = MetricsReward(
             config.n_ref_subsample,
@@ -93,37 +126,39 @@ class ORGAN(nn.Module):
         )
 
     @property
-    def device(self):
-        return next(self.parameters()).device
+    def device(self) -> torch.device:
+        return next(self.parameters()).device  # type: ignore[no-any-return]
 
-    def generator_forward(self, *args, **kwargs):
-        return self.generator(*args, **kwargs)
+    def generator_forward(self, prevs: torch.Tensor, lens: torch.Tensor) -> torch.Tensor:
+        return self.generator(prevs, lens)  # type: ignore[no-any-return]
 
-    def discriminator_forward(self, *args, **kwargs):
-        return self.discriminator(*args, **kwargs)
+    def discriminator_forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.discriminator(x)  # type: ignore[no-any-return]
 
-    def forward(self, *args, **kwargs):
-        return self.sample(*args, **kwargs)
+    # @override
+    # def forward(self, *args, **kwargs):
+    #     return self.sample(*args, **kwargs) # noqa: ERA001
 
-    def string2tensor(self, string, device="model"):
+    def string2tensor(self, string: str, device: str | torch.device = "model") -> torch.Tensor:
         ids = self.vocabulary.string2ids(string, add_bos=True, add_eos=True)
-        tensor = torch.tensor(
+        return torch.tensor(
             ids, dtype=torch.long, device=self.device if device == "model" else device
         )
 
-        return tensor
-
-    def tensor2string(self, tensor):
+    def tensor2string(self, tensor: torch.Tensor) -> str:
         ids = tensor.tolist()
-        string = self.vocabulary.ids2string(ids, rem_bos=True, rem_eos=True)
+        return self.vocabulary.ids2string(ids, rem_bos=True, rem_eos=True)
 
-        return string
-
-    def _proceed_sequences(self, prevs, states, max_len):
+    def _proceed_sequences(
+        self,
+        prevs: torch.Tensor,
+        states: tuple[torch.Tensor, torch.Tensor] | None,
+        max_len: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         with torch.no_grad():
             n_sequences = prevs.shape[0]
 
-            sequences = []
+            sequences: list[torch.Tensor] = []
             lengths = torch.zeros(n_sequences, dtype=torch.long, device=prevs.device)
 
             one_lens = torch.ones(n_sequences, dtype=torch.long, device=prevs.device)
@@ -144,28 +179,37 @@ class ORGAN(nn.Module):
 
                 prevs = currents
 
-            sequences = torch.cat(sequences, dim=-1)
+            cat_sequences = torch.cat(sequences, dim=-1)
 
-        return sequences, lengths
+        return cat_sequences, lengths
 
-    def rollout(self, n_samples, n_rollouts, ref_smiles, ref_mols, max_len=100):
+    def rollout(
+        self,
+        n_samples: int,
+        n_rollouts: int,
+        ref_smiles: Sequence[str],
+        ref_mols: Sequence[Chem.Mol],
+        max_len: int = 100,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         with torch.no_grad():
-            sequences = []
-            rewards = []
-            lengths = torch.zeros(n_samples, dtype=torch.long, device=self.device)
+            sequences: list[torch.Tensor] = []
+            rewards: list[torch.Tensor] = []
+            lengths = torch.ones(n_samples, dtype=torch.long, device=self.device)
 
             one_lens = torch.ones(n_samples, dtype=torch.long, device=self.device)
             prevs = torch.empty(n_samples, 1, dtype=torch.long, device=self.device).fill_(
                 self.vocabulary.bos
             )
             is_end = torch.zeros(n_samples, dtype=torch.uint8, device=self.device)
-            states = None
+            states: torch.Tensor | None = None
 
             sequences.append(prevs)
-            lengths += 1
 
             for current_len in range(max_len):
-                outputs, _, states = self.generator(prevs, one_lens, states)
+                gen_output: tuple[torch.Tensor, torch.Tensor, torch.Tensor] = self.generator(
+                    prevs, one_lens, states
+                )
+                outputs, _, states = gen_output
                 probs = F.softmax(outputs, dim=-1).view(n_samples, -1)
                 currents = torch.multinomial(probs, 1)
 
@@ -190,7 +234,7 @@ class ORGAN(nn.Module):
 
                 rollout_rewards = torch.sigmoid(self.discriminator(rollout_sequences).detach())
 
-                if self.metrics_reward is not None and self.reward_weight > 0:
+                if self.metrics_reward is not None and self.reward_weight > 0:  # type:ignore[redundant-expr]
                     strings = [
                         self.tensor2string(t[:l])
                         for t, l in zip(rollout_sequences, rollout_lengths)
@@ -215,22 +259,22 @@ class ORGAN(nn.Module):
 
                 prevs = currents
 
-            sequences = torch.cat(sequences, dim=1)
-            rewards = torch.cat(rewards, dim=1)
+            cat_sequences = torch.cat(sequences, dim=1)
+            cat_rewards = torch.cat(rewards, dim=1)
 
-        return sequences, rewards, lengths
+        return cat_sequences, cat_rewards, lengths
 
-    def sample_tensor(self, n, max_len=100):
+    def sample_tensor(self, n: int, max_len: int = 100) -> tuple[torch.Tensor, torch.Tensor]:
         prevs = torch.empty(n, 1, dtype=torch.long, device=self.device).fill_(self.vocabulary.bos)
         samples, lengths = self._proceed_sequences(prevs, None, max_len)
 
         samples = torch.cat([prevs, samples], dim=-1)
-        lengths += 1
+        lengths += 1  # type: ignore[assignment]
 
         return samples, lengths
 
-    def sample(self, batch_n, max_len=100):
+    def sample(self, batch_n: int, max_len: int = 100) -> list[str]:
         samples, lengths = self.sample_tensor(batch_n, max_len)
-        samples = [t[:l] for t, l in zip(samples, lengths)]
+        samples_ls = [t[:l] for t, l in zip(samples, lengths)]
 
-        return [self.tensor2string(t) for t in samples]
+        return [self.tensor2string(t) for t in samples_ls]
