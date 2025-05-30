@@ -10,6 +10,7 @@ import pandas as pd
 import torch
 from matplotlib import pyplot as plt
 from rdkit import Chem, rdBase
+from torch.nn.utils.rnn import PackedSequence
 from typing_extensions import ParamSpec, Self, override
 
 if TYPE_CHECKING:
@@ -21,6 +22,9 @@ if TYPE_CHECKING:
 P = ParamSpec("P")
 R = TypeVar("R")
 T = TypeVar("T")
+
+GruOutT = tuple[PackedSequence, torch.Tensor]
+LstmOutT = tuple[PackedSequence, tuple[torch.Tensor, torch.Tensor]]
 
 
 # https://pytorch.org/docs/stable/data.html#torch.utils.data.DataLoader
@@ -341,7 +345,7 @@ class StringDataset:
         """
         with_bos, with_eos, data = list(zip(*batch))
         lengths = [len(x) for x in with_bos]
-        order: Sequence[int] = np.argsort(lengths)[::-1]
+        order: Sequence[int] = np.argsort(lengths)[::-1]  # type: ignore[assignment]
         with_bos_ls: list[torch.Tensor] = [with_bos[i] for i in order]
         with_eos_ls: list[torch.Tensor] = [with_eos[i] for i in order]
         lengths = [lengths[i] for i in order]
