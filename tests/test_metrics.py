@@ -3,13 +3,15 @@ import warnings
 
 import numpy as np
 from rdkit import Chem
+from typing_extensions import override
 
 from moses.metrics import fraction_unique, fraction_valid, get_all_metrics
 from moses.utils import disable_rdkit_log, enable_rdkit_log
 
 
 class test_metrics(unittest.TestCase):
-    def setUp(self):
+    @override
+    def setUp(self) -> None:
         self.test = ["Oc1ccccc1-c1cccc2cnccc12", "COc1cccc(NC(=O)Cc2coc3ccc(OC)cc23)c1"]
         self.test_sf = [
             "COCc1nnc(NC(=O)COc2ccc(C(C)(C)C)cc2)s1",
@@ -39,12 +41,12 @@ class test_metrics(unittest.TestCase):
             "weight": 106.87,
         }
 
-    def test_get_all_metrics(self):
+    def test_get_all_metrics(self) -> None:
         metrics = get_all_metrics(gen=self.gen, test=self.test, k=3)
         fail = set()
         for metric in self.target:
             if not np.allclose(metrics[metric], self.target[metric]):
-                warnings.warn(
+                warnings.warn(  # noqa: B028
                     "Metric `{}` value does not match expected value. Got {}, expected {}".format(
                         metric, metrics[metric], self.target[metric]
                     )
@@ -52,12 +54,12 @@ class test_metrics(unittest.TestCase):
                 fail.add(metric)
         assert len(fail) == 0, f"Some metrics didn't pass tests: {fail}"
 
-    def test_get_all_metrics_multiprocess(self):
+    def test_get_all_metrics_multiprocess(self) -> None:
         metrics = get_all_metrics(gen=self.gen, test=self.test, k=3, n_jobs=2)
         fail = set()
         for metric in self.target:
             if not np.allclose(metrics[metric], self.target[metric]):
-                warnings.warn(
+                warnings.warn(  # noqa: B028
                     "Metric `{}` value does not match expected value. Got {}, expected {}".format(
                         metric, metrics[metric], self.target[metric]
                     )
@@ -65,10 +67,10 @@ class test_metrics(unittest.TestCase):
                 fail.add(metric)
         assert len(fail) == 0, f"Some metrics didn't pass tests: {fail}"
 
-    def test_get_all_metrics_scaffold(self):
+    def test_get_all_metrics_scaffold(self) -> None:
         get_all_metrics(gen=self.gen, test=self.test, test_scaffolds=self.test_sf, k=3, n_jobs=2)
 
-    def test_valid_unique(self):
+    def test_valid_unique(self) -> None:
         disable_rdkit_log()
         mols = ["CCNC", "CCC", "INVALID", "CCC"]
         assert np.allclose(fraction_valid(mols), 3 / 4), "Failed valid"

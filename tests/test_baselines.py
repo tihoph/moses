@@ -2,17 +2,20 @@ import tempfile
 import unittest
 
 import numpy as np
+from typing_extensions import override
 
 import moses
+import moses.dataset
 from moses.baselines import HMM, CombinatorialGenerator, NGram
 from moses.metrics.utils import fragmenter
 
 
 class test_baselines(unittest.TestCase):
-    def setUp(self):
-        self.train = moses.get_dataset("train")
+    @override
+    def setUp(self) -> None:
+        self.train = moses.dataset.get_dataset("train")
 
-    def test_hmm(self):
+    def test_hmm(self) -> None:
         model = HMM(n_components=5, seed=1)
         model.fit(self.train[:10])
         np.random.seed(1)
@@ -24,7 +27,7 @@ class test_baselines(unittest.TestCase):
         sample_loaded = model.generate_one()
         self.assertEqual(sample_original, sample_loaded, "Samples before and after saving differ")
 
-    def test_combinatorial(self):
+    def test_combinatorial(self) -> None:
         self.assertEqual(
             self.train[0],
             "CCCS(=O)c1ccc2[nH]c(=NC(=O)OC)[nH]c2c1",
@@ -46,7 +49,7 @@ class test_baselines(unittest.TestCase):
         sample_loaded = model.generate_one(1)
         self.assertEqual(sample_original, sample_loaded, "Samples before and after saving differ")
 
-    def test_ngram(self):
+    def test_ngram(self) -> None:
         model_1 = NGram(1)
         model_1.fit(self.train[:1000])
         model_2 = NGram(2)
