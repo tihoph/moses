@@ -1,7 +1,39 @@
+from __future__ import annotations
+
 import argparse
+from typing import Literal
 
 
-def get_parser(parser=None):
+class LatentGANConfig(argparse.Namespace):
+    heteroencoder_version: Literal["chembl", "moses", "new"]
+    gp: int
+    n_critic: int
+    train_epochs: int
+    n_batch: int
+    lr: float
+    b1: float
+    b2: float
+    step_size: int
+    latent_vector_dim: int
+    gamma: float
+    n_jobs: int
+    n_workers: int
+    heteroencoder_layer_dim: int
+    heteroencoder_noise_std: float
+    heteroencoder_dec_layers: int
+    heteroencoder_batch_size: int
+    heteroencoder_epochs: int
+    heteroencoder_lr: float
+    heteroencoder_mini_epochs: int
+    heteroencoder_lr_decay: bool
+    heteroencoder_patience: int
+    heteroencoder_lr_decay_start: int
+    heteroencoder_save_period: int
+
+
+def get_parser(
+    parser: argparse.ArgumentParser | None = None,
+) -> argparse.ArgumentParser:
     if parser is None:
         parser = argparse.ArgumentParser()
 
@@ -9,7 +41,7 @@ def get_parser(parser=None):
     model_arg = parser.add_argument_group("Model")
     model_arg.add_argument(
         "--heteroencoder_version",
-        type=str,
+        choices=["chembl", "moses", "new"],
         default="moses",
         help="Which heteroencoder model version to use",
     )
@@ -125,6 +157,6 @@ def get_parser(parser=None):
     return parser
 
 
-def get_config():
+def get_config() -> LatentGANConfig:
     parser = get_parser()
-    return parser.parse_known_args()[0]
+    return parser.parse_known_args()[0]  # type: ignore[return-value]

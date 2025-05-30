@@ -1,22 +1,65 @@
+from __future__ import annotations
+
 import argparse
+from typing import Literal, get_args
 
-from moses.organ.metrics_reward import MetricsReward
+MetricT = Literal[
+    "fcd",
+    "snn",
+    "fragments",
+    "scaffolds",
+    "internal_diversity",
+    "filters",
+    "logp",
+    "sa",
+    "qed",
+    "weight",
+]
+SUPPORTED_METRICS: frozenset[MetricT] = frozenset(get_args(MetricT))
 
 
-def get_parser(parser=None):
-    def restricted_float(arg):
+class ORGANConfig(argparse.Namespace):
+    embedding_size: int
+    hidden_size: int
+    num_layers: int
+    dropout: float
+    discriminator_layers: list[tuple[int, int]]
+    discriminator_dropout: float
+    reward_weight: float
+    generator_pretrain_epochs: int
+    discriminator_pretrain_epochs: int
+    pg_iters: int
+    n_batch: int
+    lr: float
+    n_jobs: int
+    n_workers: int
+    max_length: int
+    clip_grad: float
+    rollouts: int
+    generator_updates: int
+    discriminator_updates: int
+    discriminator_epochs: int
+    pg_smooth_const: float
+    n_ref_subsample: int
+    additional_rewards: list[MetricT]
+
+
+def get_parser(
+    parser: argparse.ArgumentParser | None = None,
+) -> argparse.ArgumentParser:
+    def restricted_float(arg: str) -> float:
         if float(arg) < 0 or float(arg) > 1:
             raise argparse.ArgumentTypeError("{} not in range [0, 1]".format(arg))
         return float(arg)
 
-    def conv_pair(arg):
+    def conv_pair(arg: str) -> tuple[int, int]:
         if arg[0] != "(" or arg[-1] != ")":
             raise argparse.ArgumentTypeError("Wrong pair: {}".format(arg))
 
         feats, kernel_size = arg[1:-1].split(",")
-        feats, kernel_size = int(feats), int(kernel_size)
+        feats_int, kernel_size_int = int(feats), int(kernel_size)
 
-        return feats, kernel_size
+        return feats_int, kernel_size_int
 
     if parser is None:
         parser = argparse.ArgumentParser()
@@ -147,13 +190,13 @@ def get_parser(parser=None):
         "--additional_rewards",
         nargs="+",
         type=str,
-        choices=MetricsReward.supported_metrics,
+        choices=SUPPORTED_METRICS,
         default=[],
         help="Adding of addition rewards",
     )
     return parser
 
 
-def get_config():
+def get_config() -> ORGANConfig:
     parser = get_parser()
-    return parser.parse_known_args()[0]
+    return parser.parse_known_args()[0]  # type:ignore[return-value]

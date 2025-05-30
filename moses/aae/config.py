@@ -1,7 +1,34 @@
+from __future__ import annotations
+
 import argparse
 
 
-def get_parser(parser=None):
+class AAEConfig(argparse.Namespace):
+    embedding_size: int
+    encoder_hidden_size: int
+    encoder_num_layers: int
+    encoder_bidirectional: bool
+    encoder_dropout: float
+    decoder_hidden_size: int
+    decoder_num_layers: int
+    decoder_dropout: float
+    latent_size: int
+    discriminator_layers: list[int]
+    pretrain_epochs: int
+    train_epochs: int
+    n_batch: int
+    lr: float
+    step_size: int
+    gamma: float
+    n_jobs: int
+    n_workers: int
+    discriminator_steps: int
+    weight_decay: int
+
+
+def get_parser(
+    parser: argparse.ArgumentParser | None = None,
+) -> argparse.ArgumentParser:
     if parser is None:
         parser = argparse.ArgumentParser()
 
@@ -102,6 +129,6 @@ def get_parser(parser=None):
     return parser
 
 
-def get_config():
+def get_config() -> AAEConfig:
     parser = get_parser()
-    return parser.parse_known_args()[0]
+    return parser.parse_known_args()[0]  # type: ignore[return-value]

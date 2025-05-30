@@ -1,7 +1,24 @@
+from __future__ import annotations
+
 import argparse
 
 
-def get_parser(parser=None):
+class CharRNNConfig(argparse.Namespace):
+    num_layers: int
+    hidden: int
+    dropout: float
+    train_epochs: int
+    n_batch: int
+    lr: float
+    step_size: int
+    gamma: float
+    n_jobs: int
+    n_workers: int
+
+
+def get_parser(
+    parser: argparse.ArgumentParser | None = None,
+) -> argparse.ArgumentParser:
     if parser is None:
         parser = argparse.ArgumentParser()
 
@@ -43,6 +60,6 @@ def get_parser(parser=None):
     return parser
 
 
-def get_config():
+def get_config() -> CharRNNConfig:
     parser = get_parser()
-    return parser.parse_known_args()[0]
+    return parser.parse_known_args()[0]  # type: ignore[return-value]

@@ -1,7 +1,39 @@
+from __future__ import annotations
+
 import argparse
+from typing import Literal
 
 
-def get_parser(parser=None):
+class VAEConfig(argparse.Namespace):
+    q_cell: Literal["gru"]
+    q_bidir: bool
+    q_d_h: int
+    q_n_layers: int
+    q_dropout: float
+    d_cell: Literal["gru"]
+    d_n_layers: int
+    d_dropout: float
+    d_z: int
+    d_d_h: int
+    freeze_embeddings: bool
+    n_batch: int
+    clip_grad: int
+    kl_start: int
+    kl_w_start: int
+    kl_w_end: int
+    lr_start: float
+    lr_n_period: int
+    lr_n_restarts: int
+    lr_n_mult: int
+    lr_end: float
+    n_last: int
+    n_jobs: int
+    n_workers: int
+
+
+def get_parser(
+    parser: argparse.ArgumentParser | None = None,
+) -> argparse.ArgumentParser:
     if parser is None:
         parser = argparse.ArgumentParser()
 
