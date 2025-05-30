@@ -440,10 +440,7 @@ class WassersteinMetric(Metric, Generic[T]):
 
     @override
     def precalc(self, mols: Sequence[Chem.Mol]) -> dict[str, list[T] | list[Chem.Mol]]:
-        if self.func is not None:
-            values = mapper(self.n_jobs)(self.func, mols)
-        else:
-            values = list(mols)
+        values = mapper(self.n_jobs)(self.func, mols) if self.func else list(mols)
         return {"values": values}
 
     @override
