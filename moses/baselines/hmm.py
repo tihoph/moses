@@ -1,21 +1,31 @@
+from __future__ import annotations
+
 import pickle
+from typing import TYPE_CHECKING
 
 import numpy as np
 from pomegranate import DiscreteDistribution, HiddenMarkovModel
+from typing_extensions import Self
 
 import moses
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from multiprocessing.pool import Pool
+
+    from numpy.typing import NDArray
 
 
 class HMM:
     def __init__(
         self,
-        n_components=200,
-        epochs=100,
-        batches_per_epoch=100,
-        seed=0,
-        verbose=False,
-        n_jobs=1,
-    ):
+        n_components: int = 200,
+        epochs: int = 100,
+        batches_per_epoch: int = 100,
+        seed: int = 0,
+        verbose: bool = False,
+        n_jobs: Pool | int = 1,
+    ) -> None:
         """
         Creates a Hidden Markov Model
 
@@ -35,7 +45,7 @@ class HMM:
         self.n_jobs = n_jobs
         self.fitted = False
 
-    def fit(self, data):
+    def fit(self, data: NDArray[np.str_] | Sequence[str]) -> Self:
         """
         Fits a model---learns transition and emission probabilities
 
@@ -58,7 +68,7 @@ class HMM:
         self.fitted = True
         return self
 
-    def save(self, path):
+    def save(self, path: str) -> None:
         """
         Saves a model using pickle
 
@@ -81,7 +91,7 @@ class HMM:
             )
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: str) -> Self:
         """
         Loads saved model
 
@@ -92,7 +102,7 @@ class HMM:
             Loaded HMM
         """
         with open(path, "rb") as f:
-            data = pickle.load(f)
+            data = pickle.load(f)  # noqa: S301
         hmm = data["model"]
         del data["model"]
         model = cls(**data)
@@ -100,7 +110,7 @@ class HMM:
         model.fitted = True
         return model
 
-    def generate_one(self):
+    def generate_one(self) -> str:
         """
         Generates a SMILES string using a trained HMM
 
@@ -111,14 +121,14 @@ class HMM:
 
 
 def reproduce(
-    seed,
-    samples_path=None,
-    metrics_path=None,
-    n_jobs=1,
-    device="cpu",
-    verbose=False,
-    samples=30000,
-):
+    seed: int,
+    samples_path: str | None = None,
+    metrics_path: str | None = None,
+    n_jobs: Pool | int = 1,
+    device: str = "cpu",
+    verbose: bool = False,
+    samples: int = 30000,
+) -> tuple[list[str], dict[str, float]]:
     data = moses.get_dataset("train")[:100000]
     if verbose:
         print("Training...")
@@ -128,20 +138,20 @@ def reproduce(
     if verbose:
         print(f"Sampling for seed {seed}")
     np.random.seed(seed)
-    samples = [model.generate_one() for _ in range(samples)]
+    generated_samples = [model.generate_one() for _ in range(samples)]
     if samples_path is not None:
         with open(samples_path, "w") as f:
             f.write("SMILES\n")
-            for sample in samples:
+            for sample in generated_samples:
                 f.write(sample + "\n")
     if verbose:
         print(f"Computing metrics for seed {seed}")
-    metrics = moses.get_all_metrics(samples, n_jobs=n_jobs, device=device)
+    metrics = moses.get_all_metrics(generated_samples, n_jobs=n_jobs, device=device)
     if metrics_path is not None:
-        with open(samples_path, "w") as f:
+        with open(metrics_path, "w") as f:
             for key, value in metrics.items():
                 f.write("%s,%f\n" % (key, value))
-    return samples, metrics
+    return generated_samples, metrics
 
 
 if __name__ == "__main__":

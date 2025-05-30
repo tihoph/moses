@@ -1,24 +1,34 @@
+from __future__ import annotations
+
 import pickle
 import re
 from collections import Counter
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 from rdkit import Chem
 from rdkit.Chem.BRICS import reactionDefs
 from tqdm.auto import tqdm
+from typing_extensions import Self
 
 import moses
 from moses.metrics.utils import fragmenter
 from moses.utils import mapper
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from multiprocessing.pool import Pool
+
+    from numpy.typing import NDArray
 
 isotope_re = re.compile(r"\[([0-9]+)[ab]?\*\]")
 
 """
 Prepare binary connection rules
 """
-binary_defs = {}
-connection_rules = set()
+binary_defs: dict[int, int] = {}
+connection_rules: set[tuple[int, int]] = set()
 for row in reactionDefs:
     for a, b, t in row:
         if a in ["7a", "7b"]:
@@ -34,7 +44,7 @@ for row in reactionDefs:
 
 
 class CombinatorialGenerator:
-    def __init__(self, n_jobs=1, mode=0):
+    def __init__(self, n_jobs: Pool | int = 1, mode: Literal[0, 1] = 0) -> None:
         """
         Combinatorial Generator randomly connects BRICS fragments
 
@@ -48,7 +58,7 @@ class CombinatorialGenerator:
         self.set_mode(mode)
         self.fitted = False
 
-    def fit(self, data):
+    def fit(self, data: NDArray[np.str_] | Sequence[str]) -> Self:
         """
         Collects fragment frequencies in a training set
 
@@ -60,21 +70,21 @@ class CombinatorialGenerator:
         fragments = mapper(self.n_jobs)(fragmenter, data)
 
         # Compute fragment frequencies
-        counts = Counter()
+        counts_counter: Counter[str] = Counter()
         for mol_frag in fragments:
-            counts.update(mol_frag)
-        counts = pd.DataFrame(pd.Series(counts).items(), columns=["fragment", "count"])
+            counts_counter.update(mol_frag)
+        counts = pd.DataFrame(pd.Series(counts_counter).items(), columns=["fragment", "count"])
         counts["attachment_points"] = [
-            fragment.count("*") for fragment in counts["fragment"].values
+            fragment.count("*") for fragment in counts["fragment"].to_numpy()
         ]
         counts["connection_rules"] = [
-            self.get_connection_rule(fragment) for fragment in counts["fragment"].values
+            self.get_connection_rule(fragment) for fragment in counts["fragment"].to_numpy()
         ]
         counts["frequency"] = counts["count"] / counts["count"].sum()
         self.fragment_counts = counts
 
         # Compute number of fragments distribution
-        fragments_count_distribution = Counter([len(f) for f in fragments])
+        fragments_count_distribution: dict[int, float] = dict(Counter(len(f) for f in fragments))
         total = sum(fragments_count_distribution.values())
         for k in fragments_count_distribution:
             fragments_count_distribution[k] /= total
@@ -82,7 +92,7 @@ class CombinatorialGenerator:
         self.fitted = True
         return self
 
-    def save(self, path):
+    def save(self, path: str) -> None:
         """
         Saves a model using pickle
 
@@ -101,7 +111,7 @@ class CombinatorialGenerator:
             pickle.dump(data, f)
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: str) -> Self:
         """
         Loads saved model
 
@@ -112,7 +122,7 @@ class CombinatorialGenerator:
             Loaded CombinatorialGenerator
         """
         with open(path, "rb") as f:
-            data = pickle.load(f)
+            data = pickle.load(f)  # noqa: S301
         model = cls()
         model.fragment_counts = data["fragment_counts"]
         model.fragments_count_distribution = data["fragments_count_distribution"]
@@ -121,12 +131,12 @@ class CombinatorialGenerator:
         model.fitted = True
         return model
 
-    def set_mode(self, mode):
+    def set_mode(self, mode: Literal[0, 1]) -> None:
         if mode not in [0, 1]:
             raise ValueError("Incorrect mode value: %s" % mode)
         self.mode = mode
 
-    def generate_one(self, seed=None):
+    def generate_one(self, seed: int | None = None) -> str:
         """
         Generates a SMILES string using fragment frequencies
 
@@ -140,7 +150,7 @@ class CombinatorialGenerator:
             raise RuntimeError("Fit the model before generating")
         if seed is not None:
             np.random.seed(seed)
-        mol = None
+        mol: Chem.Mol | None = None
 
         # Sample the number of fragments
         count_values, count_probs = zip(*self.fragments_count_distribution.items())
@@ -164,6 +174,9 @@ class CombinatorialGenerator:
             if mol is None:
                 mol = self.sample_fragment(counts_masked)
             else:
+                if connections_mol is None:
+                    raise ValueError("connections_mol is None")
+
                 if self.mode == 1:  # Choose connection atom first
                     connections_mol = [np.random.choice(connections_mol)]
 
@@ -185,19 +198,19 @@ class CombinatorialGenerator:
             connections_mol = self.get_connection_points(mol)
             current_attachments = len(connections_mol)
             max_attachments = total_fragments - i - current_attachments
-        smiles = Chem.MolToSmiles(mol)
-        return smiles
+        return Chem.MolToSmiles(mol)
 
-    def generate(self, n, seed=1, mode=0, verbose=False):
+    def generate(
+        self, n: int, seed: int = 1, mode: Literal[0, 1] = 0, verbose: bool = False
+    ) -> list[str]:
         self.set_mode(mode)
         seeds = range((seed - 1) * n, seed * n)
         if verbose:
             print("generating...")
             seeds = tqdm(seeds, total=n)
-        samples = mapper(self.n_jobs)(self.generate_one, seeds)
-        return samples
+        return mapper(self.n_jobs)(self.generate_one, seeds)
 
-    def get_connection_rule(self, fragment):
+    def get_connection_rule(self, fragment: str) -> int:
         """
         return OR combination for possible incoming reactions
 
@@ -213,14 +226,13 @@ class CombinatorialGenerator:
         return rule
 
     @staticmethod
-    def sample_fragment(counts):
+    def sample_fragment(counts: pd.DataFrame) -> Chem.Mol:
         new_fragment = counts.sample(weights=counts["frequency"])
         new_fragment = dict(new_fragment.iloc[0])
-        fragment = Chem.MolFromSmiles(new_fragment["fragment"])
-        return fragment
+        return Chem.MolFromSmiles(new_fragment["fragment"])
 
     @staticmethod
-    def get_connection_filter(atoms):
+    def get_connection_filter(atoms: Sequence[Chem.Atom]) -> int:
         """
         Return OR(2**isotopes)
         """
@@ -230,7 +242,7 @@ class CombinatorialGenerator:
         return connection_rule
 
     @staticmethod
-    def get_connection_points(mol):
+    def get_connection_points(mol: Chem.Mol) -> list[Chem.Atom]:
         """
         Return connection points
 
@@ -240,15 +252,13 @@ class CombinatorialGenerator:
         Returns:
             atom list
         """
-        atoms = []
-        for atom in mol.GetAtoms():
-            if atom.GetSymbol() == "*":
-                atoms.append(atom)
-        return atoms
+        return [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "*"]  # type:ignore[call-arg,no-untyped-call]
 
     @staticmethod
-    def filter_connections(atoms1, atoms2, unique=True):
-        possible_connections = []
+    def filter_connections(
+        atoms1: Sequence[Chem.Atom], atoms2: Sequence[Chem.Atom], unique: bool = True
+    ) -> list[tuple[Chem.Atom, Chem.Atom]]:
+        possible_connections: list[tuple[Chem.Atom, Chem.Atom]] = []
         for a1 in atoms1:
             i1 = a1.GetIsotope()
             for a2 in atoms2:
@@ -258,7 +268,9 @@ class CombinatorialGenerator:
         return possible_connections
 
     @staticmethod
-    def connect_mols(mol1, mol2, atom1, atom2):
+    def connect_mols(
+        mol1: Chem.Mol, mol2: Chem.Mol, atom1: Chem.Atom, atom2: Chem.Atom
+    ) -> Chem.Mol:
         combined = Chem.CombineMols(mol1, mol2)
         emol = Chem.EditableMol(combined)
         neighbor1_idx = atom1.GetNeighbors()[0].GetIdx()
@@ -269,19 +281,18 @@ class CombinatorialGenerator:
         emol.AddBond(neighbor1_idx, neighbor2_idx + mol1.GetNumAtoms(), order=bond_order)
         emol.RemoveAtom(atom2_idx + mol1.GetNumAtoms())
         emol.RemoveAtom(atom1_idx)
-        mol = emol.GetMol()
-        return mol
+        return emol.GetMol()
 
 
 def reproduce(
-    seed,
-    samples_path=None,
-    metrics_path=None,
-    n_jobs=1,
-    device="cpu",
-    verbose=False,
-    samples=30000,
-):
+    seed: int,
+    samples_path: str | None = None,
+    metrics_path: str | None = None,
+    n_jobs: Pool | int = 1,
+    device: str = "cpu",
+    verbose: bool = False,
+    samples: int = 30000,
+) -> tuple[list[str], dict[str, float]]:
     train = moses.get_dataset("train")
     model = CombinatorialGenerator(n_jobs=n_jobs)
 
@@ -292,20 +303,20 @@ def reproduce(
     if verbose:
         print(f"Sampling for seed {seed}")
     seeds = list(range((seed - 1) * samples, seed * samples))
-    samples = mapper(n_jobs)(model.generate_one, seeds)
+    generated_samples = mapper(n_jobs)(model.generate_one, seeds)
     if samples_path is not None:
         with open(samples_path, "w") as f:
             f.write("SMILES\n")
-            for sample in samples:
+            for sample in generated_samples:
                 f.write(sample + "\n")
     if verbose:
         print(f"Computing metrics for seed {seed}")
-    metrics = moses.get_all_metrics(samples, n_jobs=n_jobs, device=device)
+    metrics = moses.get_all_metrics(generated_samples, n_jobs=n_jobs, device=device)
     if metrics_path is not None:
         with open(metrics_path, "w") as f:
             for key, value in metrics.items():
                 f.write("%s,%f\n" % (key, value))
-    return samples, metrics
+    return generated_samples, metrics
 
 
 if __name__ == "__main__":

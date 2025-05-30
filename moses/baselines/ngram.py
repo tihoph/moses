@@ -1,22 +1,32 @@
+from __future__ import annotations
+
 import pickle
+from typing import TYPE_CHECKING
 
 import numpy as np
 from tqdm.auto import tqdm
+from typing_extensions import Self
 
 import moses
 from moses import CharVocab
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from multiprocessing.pool import Pool
+
+    from numpy.typing import NDArray
+
 
 class NGram:
-    def __init__(self, max_context_len=10, verbose=False):
+    def __init__(self, max_context_len: int = 10, verbose: bool = False) -> None:
         self.max_context_len = max_context_len
-        self._dict = dict()
-        self.vocab = None
-        self.default_probs = None
-        self.zero_probs = None
+        self._dict: dict[tuple[int, ...], NDArray[np.float64]] = {}
+        self.vocab: CharVocab | None = None
+        self.default_probs: NDArray[np.float64] | None = None
+        self.zero_probs: NDArray[np.float64] | None = None
         self.verbose = verbose
 
-    def fit(self, data):
+    def fit(self, data: NDArray[np.str_] | Sequence[str]) -> None:
         self.vocab = CharVocab.from_data(data)
         self.default_probs = np.hstack(
             [np.ones(len(self.vocab) - 4), np.array([0.0, 1.0, 0.0, 0.0])]
@@ -37,11 +47,15 @@ class NGram:
                     probs[cid] += 1.0
                     self._dict[context] = probs
 
-    def fit_update(self, data):
+    def fit_update(self, data: NDArray[np.str_] | Sequence[str]) -> None:
+        if self.vocab is None or self.zero_probs is None:
+            raise RuntimeError("Error: Fit the model before generating")
+
+        iter_data = data
         if self.verbose:
             print("fitting...")
-            data = tqdm(data, total=len(data))
-        for line in data:
+            iter_data = tqdm(data, total=len(data))
+        for line in iter_data:
             t_line = tuple(self.vocab.string2ids(line, True, True))
             for i in range(len(t_line)):
                 for shift in range(self.max_context_len):
@@ -53,13 +67,13 @@ class NGram:
                     probs[cid] += 1.0
                     self._dict[context] = probs
 
-    def generate_one(self, l_smooth=0.01, context_len=None, max_len=100):
-        if self.vocab is None:
+    def generate_one(
+        self, l_smooth: float = 0.01, context_len: int | None = None, max_len: int = 100
+    ) -> str:
+        if self.vocab is None or self.default_probs is None:
             raise RuntimeError("Error: Fit the model before generating")
 
-        if context_len is None:
-            context_len = self.max_context_len
-        elif context_len <= 0 or context_len > self.max_context_len:
+        if context_len is None or context_len <= 0 or context_len > self.max_context_len:
             context_len = self.max_context_len
 
         res = [self.vocab.bos]
@@ -77,13 +91,11 @@ class NGram:
 
         return self.vocab.ids2string(res)
 
-    def nll(self, smiles, l_smooth=0.01, context_len=None):
-        if self.vocab is None:
+    def nll(self, smiles: str, l_smooth: float = 0.01, context_len: int | None = None) -> float:
+        if self.vocab is None or self.default_probs is None:
             raise RuntimeError("Error: model is not trained")
 
-        if context_len is None:
-            context_len = self.max_context_len
-        elif context_len <= 0 or context_len > self.max_context_len:
+        if context_len is None or context_len <= 0 or context_len > self.max_context_len:
             context_len = self.max_context_len
 
         tokens = tuple(self.vocab.string2ids(smiles, True, True))
@@ -104,14 +116,20 @@ class NGram:
 
         return likelihood
 
-    def generate(self, n, l_smooth=0.01, context_len=None, max_len=100):
+    def generate(
+        self,
+        n: int,
+        l_smooth: float = 0.01,
+        context_len: int | None = None,
+        max_len: int = 100,
+    ) -> list[str]:
         generator = (self.generate_one(l_smooth, context_len, max_len) for i in range(n))
         if self.verbose:
             print("generating...")
             generator = tqdm(generator, total=n)
         return list(generator)
 
-    def save(self, path):
+    def save(self, path: str) -> None:
         """
         Saves a model using pickle
         Arguments:
@@ -130,7 +148,7 @@ class NGram:
             pickle.dump(data, f)
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: str) -> Self:
         """
         Loads saved model
         Arguments:
@@ -139,7 +157,7 @@ class NGram:
             Loaded NGramGenerator
         """
         with open(path, "rb") as f:
-            data = pickle.load(f)
+            data = pickle.load(f)  # noqa: S301
         model = cls()
         model._dict = data["_dict"]
         model.vocab = data["vocab"]
@@ -151,14 +169,14 @@ class NGram:
 
 
 def reproduce(
-    seed,
-    samples_path=None,
-    metrics_path=None,
-    n_jobs=1,
-    device="cpu",
-    verbose=False,
-    samples=30000,
-):
+    seed: int,
+    samples_path: str | None = None,
+    metrics_path: str | None = None,
+    n_jobs: Pool | int = 1,
+    device: str = "cpu",
+    verbose: bool = False,
+    samples: int = 30000,
+) -> tuple[list[str], dict[str, float]]:
     data = moses.get_dataset("train")
     model = NGram(10, verbose=verbose)
     model.fit(data)
