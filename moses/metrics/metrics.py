@@ -1,15 +1,21 @@
+from __future__ import annotations
+
+import logging
+import multiprocessing
 import warnings
-from multiprocessing import Pool
+from multiprocessing.pool import Pool
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypedDict, TypeVar
 
 import numpy as np
 from fcd_torch import FCD as FCDMetric
 from scipy.spatial.distance import cosine as cos_distance
 from scipy.stats import wasserstein_distance
+from typing_extensions import Unpack, override
 
 from moses.dataset import get_dataset, get_statistics
 from moses.utils import disable_rdkit_log, enable_rdkit_log, mapper
 
-from .utils import (
+from .utils import (  # type:ignore[attr-defined]
     QED,
     SA,
     average_agg_tanimoto,
@@ -23,20 +29,30 @@ from .utils import (
     weight,
 )
 
+if TYPE_CHECKING:
+    from collections import Counter
+    from collections.abc import Callable, Mapping, Sequence
+
+    from numpy.typing import NDArray
+    from rdkit import Chem
+
+T = TypeVar("T")
+logger = logging.getLogger(__name__)
+
 
 def get_all_metrics(
-    gen,
-    k=None,
-    n_jobs=1,
-    device="cpu",
-    batch_size=512,
-    pool=None,
-    test=None,
-    test_scaffolds=None,
-    ptest=None,
-    ptest_scaffolds=None,
-    train=None,
-):
+    gen: Sequence[str],
+    k: int | Sequence[int] | None = None,
+    n_jobs: Pool | int = 1,
+    device: str = "cpu",
+    batch_size: int = 512,
+    pool: Pool | int | None = None,
+    test: NDArray[np.str_] | Sequence[str] | None = None,
+    test_scaffolds: NDArray[np.str_] | Sequence[str] | None = None,
+    ptest: Mapping[str, Any] | None = None,
+    ptest_scaffolds: Mapping[str, Any] | None = None,
+    train: NDArray[np.str_] | Sequence[str] | None = None,
+) -> dict[str, float]:
     """
     Computes all available metrics between test (scaffold test)
     and generated sets of SMILES.
@@ -95,17 +111,20 @@ def get_all_metrics(
     if k is None:
         k = [1000, 10000]
     disable_rdkit_log()
-    metrics = {}
+    metrics: dict[str, float] = {}
     close_pool = False
-    if pool is None:
+    if isinstance(n_jobs, Pool):
+        pool = n_jobs
+        n_jobs = len(pool._pool)  # type: ignore[attr-defined] # noqa: SLF001
+    if not isinstance(pool, Pool):
         if n_jobs != 1:
-            pool = Pool(n_jobs)
+            pool = multiprocessing.Pool(pool or n_jobs)
             close_pool = True
         else:
             pool = 1
     metrics["valid"] = fraction_valid(gen, n_jobs=pool)
     gen = remove_invalid(gen, canonize=True)
-    if not isinstance(k, (list, tuple)):
+    if isinstance(k, int):
         k = [k]
     for _k in k:
         metrics["unique@{}".format(_k)] = fraction_unique(gen, _k, pool)
@@ -114,7 +133,7 @@ def get_all_metrics(
         ptest = compute_intermediate_statistics(
             test, n_jobs=n_jobs, device=device, batch_size=batch_size, pool=pool
         )
-    if test_scaffolds is not None and ptest_scaffolds is None:
+    if test_scaffolds is not None and ptest_scaffolds is None:  # type: ignore[redundant-expr]
         ptest_scaffolds = compute_intermediate_statistics(
             test_scaffolds,
             n_jobs=n_jobs,
@@ -122,9 +141,17 @@ def get_all_metrics(
             batch_size=batch_size,
             pool=pool,
         )
-    mols = mapper(pool)(get_mol, gen)
-    kwargs = {"n_jobs": pool, "device": device, "batch_size": batch_size}
-    kwargs_fcd = {"n_jobs": n_jobs, "device": device, "batch_size": batch_size}
+    raw_mols = mapper(pool)(get_mol, gen)
+    mols = [m for m in raw_mols if m is not None]
+    if len(mols) != len(raw_mols):
+        raise ValueError("Some molecules could not be mapped to RDKit molecules")
+
+    kwargs: MetricsKwargs = {"n_jobs": pool, "device": device, "batch_size": batch_size}
+    kwargs_fcd: FCDKwargs = {
+        "n_jobs": n_jobs,
+        "device": device,
+        "batch_size": batch_size,
+    }
     metrics["FCD/Test"] = FCDMetric(**kwargs_fcd)(gen=gen, pref=ptest["FCD"])
     metrics["SNN/Test"] = SNNMetric(**kwargs)(gen=mols, pref=ptest["SNN"])
     metrics["Frag/Test"] = FragMetric(**kwargs)(gen=mols, pref=ptest["Frag"])
@@ -146,41 +173,58 @@ def get_all_metrics(
     if train is not None:
         metrics["Novelty"] = novelty(mols, train, pool)
     enable_rdkit_log()
-    if close_pool:
+    if close_pool and isinstance(pool, Pool):
         pool.close()
         pool.join()
     return metrics
 
 
-def compute_intermediate_statistics(smiles, n_jobs=1, device="cpu", batch_size=512, pool=None):
+def compute_intermediate_statistics(
+    smiles: NDArray[np.str_] | Sequence[str],
+    n_jobs: Pool | int = 1,
+    device: str = "cpu",
+    batch_size: int = 512,
+    pool: Pool | int | None = None,
+) -> dict[str, Any]:
     """
     The function precomputes statistics such as mean and variance for FCD, etc.
     It is useful to compute the statistics for test and scaffold test sets to
         speedup metrics calculation.
     """
     close_pool = False
-    if pool is None:
+    if isinstance(n_jobs, Pool):
+        pool = n_jobs
+        n_jobs = len(pool._pool)  # type: ignore[attr-defined] # noqa: SLF001
+    if not isinstance(pool, Pool):
         if n_jobs != 1:
-            pool = Pool(n_jobs)
+            pool = multiprocessing.Pool(pool or n_jobs)
             close_pool = True
         else:
             pool = 1
-    statistics = {}
-    mols = mapper(pool)(get_mol, smiles)
-    kwargs = {"n_jobs": pool, "device": device, "batch_size": batch_size}
-    kwargs_fcd = {"n_jobs": n_jobs, "device": device, "batch_size": batch_size}
+    statistics: dict[str, Any] = {}
+    raw_mols = mapper(pool)(get_mol, smiles)
+    mols = [m for m in raw_mols if m is not None]
+    if len(mols) != len(raw_mols):
+        raise ValueError("Some molecules could not be mapped to RDKit molecules")
+
+    kwargs: MetricsKwargs = {"n_jobs": pool, "device": device, "batch_size": batch_size}
+    kwargs_fcd: FCDKwargs = {
+        "n_jobs": n_jobs,
+        "device": device,
+        "batch_size": batch_size,
+    }
     statistics["FCD"] = FCDMetric(**kwargs_fcd).precalc(smiles)
     statistics["SNN"] = SNNMetric(**kwargs).precalc(mols)
     statistics["Frag"] = FragMetric(**kwargs).precalc(mols)
     statistics["Scaf"] = ScafMetric(**kwargs).precalc(mols)
     for name, func in [("logP", logP), ("SA", SA), ("QED", QED), ("weight", weight)]:
         statistics[name] = WassersteinMetric(func, **kwargs).precalc(mols)
-    if close_pool:
+    if close_pool and isinstance(pool, Pool):
         pool.terminate()
     return statistics
 
 
-def fraction_passes_filters(gen, n_jobs=1):
+def fraction_passes_filters(gen: Sequence[Chem.Mol], n_jobs: Pool | int = 1) -> float:
     """
     Computes the fraction of molecules that pass filters:
     * MCF
@@ -189,20 +233,33 @@ def fraction_passes_filters(gen, n_jobs=1):
     * No charges
     """
     passes = mapper(n_jobs)(mol_passes_filters, gen)
-    return np.mean(passes)
+    return np.mean(passes)  # type: ignore[return-value]
 
 
-def internal_diversity(gen, n_jobs=1, device="cpu", fp_type="morgan", gen_fps=None, p=1):
+def internal_diversity(
+    gen: Sequence[str | Chem.Mol],
+    n_jobs: Pool | int = 1,
+    device: str = "cpu",
+    fp_type: str = "morgan",
+    gen_fps: NDArray[Any] | None = None,
+    p: int = 1,
+) -> float:
     """
     Computes internal diversity as:
     1/|A|^2 sum_{x, y in AxA} (1-tanimoto(x, y))
     """
     if gen_fps is None:
         gen_fps = fingerprints(gen, fp_type=fp_type, n_jobs=n_jobs)
-    return 1 - (average_agg_tanimoto(gen_fps, gen_fps, agg="mean", device=device, p=p)).mean()
+    avg_sim = average_agg_tanimoto(gen_fps, gen_fps, agg="mean", device=device, p=p)
+    return 1 - avg_sim
 
 
-def fraction_unique(gen, k=None, n_jobs=1, check_validity=True):
+def fraction_unique(
+    gen: Sequence[str],
+    k: int | None = None,
+    n_jobs: Pool | int = 1,
+    check_validity: bool = True,
+) -> float:
     """
     Computes a number of unique molecules
     Parameters:
@@ -213,7 +270,7 @@ def fraction_unique(gen, k=None, n_jobs=1, check_validity=True):
     """
     if k is not None:
         if len(gen) < k:
-            warnings.warn(
+            warnings.warn(  # noqa: B028
                 "Can't compute unique@{}.".format(k)
                 + "gen contains only {} molecules".format(len(gen))
             )
@@ -224,25 +281,31 @@ def fraction_unique(gen, k=None, n_jobs=1, check_validity=True):
     return len(canonic) / len(gen)
 
 
-def fraction_valid(gen, n_jobs=1):
+def fraction_valid(gen: Sequence[str], n_jobs: Pool | int = 1) -> float:
     """
     Computes a number of valid molecules
     Parameters:
         gen: list of SMILES
         n_jobs: number of threads for calculation
     """
-    gen = mapper(n_jobs)(get_mol, gen)
-    return 1 - gen.count(None) / len(gen)
+    mols = mapper(n_jobs)(get_mol, gen)
+    return 1 - mols.count(None) / len(mols)
 
 
-def novelty(gen, train, n_jobs=1):
+def novelty(
+    gen: Sequence[str | Chem.Mol],
+    train: NDArray[np.str_] | Sequence[str],
+    n_jobs: Pool | int = 1,
+) -> float:
     gen_smiles = mapper(n_jobs)(canonic_smiles, gen)
     gen_smiles_set = set(gen_smiles) - {None}
     train_set = set(train)
     return len(gen_smiles_set - train_set) / len(gen_smiles_set)
 
 
-def remove_invalid(gen, canonize=True, n_jobs=1):
+def remove_invalid(
+    gen: NDArray[np.str_] | Sequence[str], canonize: bool = True, n_jobs: Pool | int = 1
+) -> list[str]:
     """
     Removes invalid molecules from the dataset
     """
@@ -252,27 +315,59 @@ def remove_invalid(gen, canonize=True, n_jobs=1):
     return [x for x in mapper(n_jobs)(canonic_smiles, gen) if x is not None]
 
 
+class MetricsKwargs(TypedDict, total=False):
+    n_jobs: Pool | int
+    device: str
+    batch_size: int
+
+
+class FCDKwargs(TypedDict, total=False):
+    n_jobs: int
+    device: str
+    batch_size: int
+
+
 class Metric:
-    def __init__(self, n_jobs=1, device="cpu", batch_size=512, **kwargs):
+    def __init__(
+        self,
+        n_jobs: Pool | int = 1,
+        device: str = "cpu",
+        batch_size: int = 512,
+        # **kwargs,
+    ) -> None:
         self.n_jobs = n_jobs
         self.device = device
         self.batch_size = batch_size
-        for k, v in kwargs.values():
-            setattr(self, k, v)
+        # for k, v in kwargs.values():
+        #     setattr(self, k, v) # noqa: ERA001
 
-    def __call__(self, ref=None, gen=None, pref=None, pgen=None):
-        assert (ref is None) != (pref is None), "specify ref xor pref"
-        assert (gen is None) != (pgen is None), "specify gen xor pgen"
+    def __call__(
+        self,
+        ref: Sequence[Chem.Mol] | None = None,
+        gen: Sequence[Chem.Mol] | None = None,
+        pref: Mapping[str, Any] | None = None,
+        pgen: Mapping[str, Any] | None = None,
+    ) -> float:
         if pref is None:
+            if ref is None:
+                raise ValueError("specify ref or pref")
             pref = self.precalc(ref)
+        elif ref:
+            raise ValueError("specify pref xor ref")
+
         if pgen is None:
+            if gen is None:
+                raise ValueError("specify gen or pgen")
             pgen = self.precalc(gen)
+        elif gen:
+            raise ValueError("specify pgen xor gen")
+
         return self.metric(pref, pgen)
 
-    def precalc(self, moleclues):
+    def precalc(self, mols: Sequence[Chem.Mol]) -> dict[str, Any]:
         raise NotImplementedError
 
-    def metric(self, pref, pgen):
+    def metric(self, pref: Mapping[str, Any], pgen: Mapping[str, Any]) -> float:
         raise NotImplementedError
 
 
@@ -281,18 +376,24 @@ class SNNMetric(Metric):
     Computes average max similarities of gen SMILES to ref SMILES
     """
 
-    def __init__(self, fp_type="morgan", **kwargs):
+    def __init__(
+        self,
+        fp_type: Literal["maccs", "morgan"] = "morgan",
+        **kwargs: Unpack[MetricsKwargs],
+    ) -> None:
         self.fp_type = fp_type
         super().__init__(**kwargs)
 
-    def precalc(self, mols):
+    @override
+    def precalc(self, mols: Sequence[Chem.Mol]) -> dict[str, NDArray[Any]]:
         return {"fps": fingerprints(mols, n_jobs=self.n_jobs, fp_type=self.fp_type)}
 
-    def metric(self, pref, pgen):
+    @override
+    def metric(self, pref: Mapping[str, Any], pgen: Mapping[str, Any]) -> float:
         return average_agg_tanimoto(pref["fps"], pgen["fps"], device=self.device)
 
 
-def cos_similarity(ref_counts, gen_counts):
+def cos_similarity(ref_counts: Mapping[str, int], gen_counts: Mapping[str, int]) -> float:
     """
     Computes cosine similarity between
      dictionaries of form {name: count}. Non-present
@@ -305,36 +406,46 @@ def cos_similarity(ref_counts, gen_counts):
     keys = np.unique(list(ref_counts.keys()) + list(gen_counts.keys()))
     ref_vec = np.array([ref_counts.get(k, 0) for k in keys])
     gen_vec = np.array([gen_counts.get(k, 0) for k in keys])
-    return 1 - cos_distance(ref_vec, gen_vec)
+    return 1 - cos_distance(ref_vec, gen_vec)  # type: ignore[no-any-return]
 
 
 class FragMetric(Metric):
-    def precalc(self, mols):
+    @override
+    def precalc(self, mols: Sequence[Chem.Mol]) -> dict[str, Counter[str]]:
         return {"frag": compute_fragments(mols, n_jobs=self.n_jobs)}
 
-    def metric(self, pref, pgen):
+    @override
+    def metric(self, pref: Mapping[str, Any], pgen: Mapping[str, Any]) -> float:
         return cos_similarity(pref["frag"], pgen["frag"])
 
 
 class ScafMetric(Metric):
-    def precalc(self, mols):
+    @override
+    def precalc(self, mols: Sequence[Chem.Mol]) -> dict[str, Counter[str]]:
         return {"scaf": compute_scaffolds(mols, n_jobs=self.n_jobs)}
 
-    def metric(self, pref, pgen):
+    @override
+    def metric(self, pref: Mapping[str, Any], pgen: Mapping[str, Any]) -> float:
         return cos_similarity(pref["scaf"], pgen["scaf"])
 
 
-class WassersteinMetric(Metric):
-    def __init__(self, func=None, **kwargs):
+class WassersteinMetric(Metric, Generic[T]):
+    def __init__(
+        self,
+        func: Callable[[Chem.Mol], T] | None = None,
+        **kwargs: Unpack[MetricsKwargs],
+    ):
         self.func = func
         super().__init__(**kwargs)
 
-    def precalc(self, mols):
+    @override
+    def precalc(self, mols: Sequence[Chem.Mol]) -> dict[str, list[T] | list[Chem.Mol]]:
         if self.func is not None:
             values = mapper(self.n_jobs)(self.func, mols)
         else:
-            values = mols
+            values = list(mols)
         return {"values": values}
 
-    def metric(self, pref, pgen):
-        return wasserstein_distance(pref["values"], pgen["values"])
+    @override
+    def metric(self, pref: Mapping[str, Any], pgen: Mapping[str, Any]) -> float:
+        return wasserstein_distance(pref["values"], pgen["values"])  # type: ignore[no-any-return]

@@ -1,4 +1,4 @@
-from .metrics import (
+from .metrics import (  # type:ignore[attr-defined]
     QED,
     SA,
     FCDMetric,
