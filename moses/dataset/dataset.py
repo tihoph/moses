@@ -1,12 +1,15 @@
 import os
+from typing import Any, Literal, get_args
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
-AVAILABLE_SPLITS = ["train", "test", "test_scaffolds"]
+SplitT = Literal["train", "test", "test_scaffolds"]
+AVAILABLE_SPLITS: list[SplitT] = list(get_args(SplitT))
 
 
-def get_dataset(split="train"):
+def get_dataset(split: SplitT = "train") -> NDArray[np.str_]:
     """
     Loads MOSES dataset
 
@@ -20,14 +23,11 @@ def get_dataset(split="train"):
     if split not in AVAILABLE_SPLITS:
         raise ValueError(f"Unknown split {split}. Available splits: {AVAILABLE_SPLITS}")
     base_path = os.path.dirname(__file__)
-    if split not in AVAILABLE_SPLITS:
-        raise ValueError(f"Unknown split {split}. Available splits: {AVAILABLE_SPLITS}")
     path = os.path.join(base_path, "data", split + ".csv.gz")
-    smiles = pd.read_csv(path, compression="gzip")["SMILES"].values
-    return smiles
+    return pd.read_csv(path, compression="gzip")["SMILES"].to_numpy()  # type: ignore[no-any-return]
 
 
-def get_statistics(split="test"):
+def get_statistics(split: SplitT = "test") -> dict[str, Any]:
     base_path = os.path.dirname(__file__)
     path = os.path.join(base_path, "data", split + "_stats.npz")
-    return np.load(path, allow_pickle=True)["stats"].item()
+    return np.load(path, allow_pickle=True)["stats"].item()  # type: ignore[no-any-return]
