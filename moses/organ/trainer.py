@@ -100,6 +100,7 @@ class ORGANTrainer(MosesTrainer):
             postfix["running_loss"] += (loss.item() - postfix["running_loss"]) / (i + 1)
             tqdm_data.set_postfix(postfix)
 
+
         postfix["mode"] = (
             "Pretrain: eval generator" if optimizer is None else "Pretrain: train generator"
         )
@@ -143,7 +144,7 @@ class ORGANTrainer(MosesTrainer):
     def _pretrain_discriminator_epoch(
         self,
         model: ORGAN,
-        tqdm_data: tqdm,
+        tqdm_data: tqdm[torch.Tensor],
         criterion: Loss,
         optimizer: Optimizer | None = None,
     ) -> dict[str, Any]:
@@ -175,6 +176,7 @@ class ORGANTrainer(MosesTrainer):
             postfix["loss"] = loss.item()
             postfix["running_loss"] += (loss.item() - postfix["running_loss"]) / (i + 1)
             tqdm_data.set_postfix(postfix)
+
 
         postfix["mode"] = (
             "Pretrain: eval discriminator" if optimizer is None else "Pretrain: train discriminator"
@@ -296,10 +298,12 @@ class ORGANTrainer(MosesTrainer):
             n_batches = (len(train_loader) + self.config.n_batch - 1) // self.config.n_batch
             sampled_batches = [
                 model.sample_tensor(self.config.n_batch, self.config.max_length)[0]
-                for _ in range(n_batches)
+                for _ in tqdm(range(n_batches), desc="Sampling batches", leave=False)
             ]
 
-            for _ in range(self.config.discriminator_epochs):
+            for _ in tqdm(
+                range(self.config.discriminator_epochs), desc="Discrim training", leave=False
+            ):
                 random.shuffle(sampled_batches)
 
                 for inputs_from_model, inputs_from_data in zip(sampled_batches, train_loader):

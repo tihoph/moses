@@ -23,6 +23,7 @@ class VAE(nn.Module):
         # Special symbols
         self.pad = vocab.pad
         self.bos = vocab.bos
+        self.eos = vocab.eos
 
         # Word embeddings layer
         n_vocab, d_emb = len(vocab), vocab.vectors.size(1)
@@ -192,7 +193,7 @@ class VAE(nn.Module):
             x = torch.tensor([self.pad], device=self.device).repeat(n_batch, max_len)
             x[:, 0] = self.bos
             end_pads = torch.tensor([max_len], device=self.device).repeat(n_batch)
-            eos_mask = torch.zeros(n_batch, dtype=torch.uint8, device=self.device)
+            eos_mask = torch.zeros(n_batch, dtype=torch.bool, device=self.device)
 
             # Generating cycle
             for i in range(1, max_len):

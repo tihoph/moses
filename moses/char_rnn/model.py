@@ -86,7 +86,7 @@ class CharRNN(nn.Module):
                 new_smiles_list[i][0] = self.vocabulary.bos
 
             len_smiles_list = [1 for _ in range(n_batch)]
-            lens = torch.tensor([1 for _ in range(n_batch)], dtype=torch.long, device=self.device)
+            lens = torch.tensor([1 for _ in range(n_batch)], dtype=torch.long, device="cpu")
             end_smiles_list = [False for _ in range(n_batch)]
 
             hiddens = None

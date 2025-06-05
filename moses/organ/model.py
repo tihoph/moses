@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from tqdm import tqdm
 from typing_extensions import override
 
 from moses.organ.metrics_reward import MetricsReward
@@ -161,7 +162,7 @@ class ORGAN(nn.Module):
             sequences: list[torch.Tensor] = []
             lengths = torch.zeros(n_sequences, dtype=torch.long, device=prevs.device)
 
-            one_lens = torch.ones(n_sequences, dtype=torch.long, device=prevs.device)
+            one_lens = torch.ones(n_sequences, dtype=torch.long, device="cpu")
             is_end = prevs.eq(self.vocabulary.eos).view(-1)
 
             for _ in range(max_len):
@@ -194,18 +195,18 @@ class ORGAN(nn.Module):
         with torch.no_grad():
             sequences: list[torch.Tensor] = []
             rewards: list[torch.Tensor] = []
-            lengths = torch.ones(n_samples, dtype=torch.long, device=self.device)
+            lengths = torch.ones(n_samples, dtype=torch.long, device="cpu")
 
-            one_lens = torch.ones(n_samples, dtype=torch.long, device=self.device)
+            one_lens = torch.ones(n_samples, dtype=torch.long, device="cpu")
             prevs = torch.empty(n_samples, 1, dtype=torch.long, device=self.device).fill_(
                 self.vocabulary.bos
             )
-            is_end = torch.zeros(n_samples, dtype=torch.uint8, device=self.device)
+            is_end = torch.zeros(n_samples, dtype=torch.bool, device="cpu")
             states: torch.Tensor | None = None
 
             sequences.append(prevs)
 
-            for current_len in range(max_len):
+            for current_len in tqdm(range(max_len), desc="Rollout", leave=False):
                 gen_output: tuple[torch.Tensor, torch.Tensor, torch.Tensor] = self.generator(
                     prevs, one_lens, states
                 )
@@ -225,6 +226,7 @@ class ORGAN(nn.Module):
                 rollout_sequences, rollout_lengths = self._proceed_sequences(
                     rollout_prevs, rollout_states, max_len - current_len
                 )
+                rollout_lengths = rollout_lengths.to("cpu")
 
                 rollout_sequences = torch.cat(
                     [s[~is_end, :].repeat(n_rollouts, 1) for s in sequences] + [rollout_sequences],

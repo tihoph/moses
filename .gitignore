@@ -8,3 +8,5 @@ dist/
 .mypy_cache
 .ruff_cache
 .pytest_cache
+metrics_*.csv
+checkpoints

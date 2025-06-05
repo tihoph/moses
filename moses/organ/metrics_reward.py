@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from collections import Counter
+from multiprocessing.pool import Pool
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -26,7 +27,6 @@ from .config import SUPPORTED_METRICS, MetricT
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from multiprocessing.pool import Pool
 
     from numpy.typing import NDArray
     from rdkit import Chem
@@ -49,9 +49,7 @@ class MetricsReward:
     ) -> None:
         self.n_ref_subsample = n_ref_subsample
         self.n_rollouts = n_rollouts
-        # TODO: profile this. Pool works too slow.
-        n_jobs = n_jobs if False else 1  # type: ignore[redundant-expr]
-        self.n_jobs = n_jobs
+        self.n_jobs = Pool(n_jobs) if isinstance(n_jobs, int) and n_jobs > 1 else n_jobs
         self.metrics = []
         if metrics:
             assert all(m in SUPPORTED_METRICS for m in metrics)

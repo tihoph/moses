@@ -136,7 +136,7 @@ def get_parser(
         "--pg_iters",
         type=int,
         default=1000,
-        help="Number of inerations for policy gradient training",
+        help="Number of iterations for policy gradient training",
     )
     train_arg.add_argument("--n_batch", type=int, default=64, help="Size of batch")
     train_arg.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
