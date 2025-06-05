@@ -100,7 +100,6 @@ class ORGANTrainer(MosesTrainer):
             postfix["running_loss"] += (loss.item() - postfix["running_loss"]) / (i + 1)
             tqdm_data.set_postfix(postfix)
 
-
         postfix["mode"] = (
             "Pretrain: eval generator" if optimizer is None else "Pretrain: train generator"
         )
@@ -176,7 +175,6 @@ class ORGANTrainer(MosesTrainer):
             postfix["loss"] = loss.item()
             postfix["running_loss"] += (loss.item() - postfix["running_loss"]) / (i + 1)
             tqdm_data.set_postfix(postfix)
-
 
         postfix["mode"] = (
             "Pretrain: eval discriminator" if optimizer is None else "Pretrain: train discriminator"

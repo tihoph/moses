@@ -26,7 +26,7 @@ from moses.utils import get_mol, mapper
 from .config import SUPPORTED_METRICS, MetricT
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Collection, Sequence
 
     from numpy.typing import NDArray
     from rdkit import Chem
@@ -45,7 +45,7 @@ class MetricsReward:
         n_ref_subsample: int,
         n_rollouts: int,
         n_jobs: Pool | int,
-        metrics: Sequence[MetricT] | None = None,
+        metrics: Collection[MetricT] | None = None,
     ) -> None:
         self.n_ref_subsample = n_ref_subsample
         self.n_rollouts = n_rollouts
