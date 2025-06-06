@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import argparse
-from typing import Literal, overload
+from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
 from rdkit import RDLogger
 
 from moses.metrics.metrics import get_all_metrics
 from moses.script_utils import read_smiles_csv
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 lg = RDLogger.logger()
 lg.setLevel(RDLogger.CRITICAL)  # type: ignore[no-untyped-call]
@@ -20,9 +23,9 @@ class EvalConfig(argparse.Namespace):
     ptest_path: str
     ptest_scaffolds_path: str
     gen_path: str
-    unique_k: str
-    n_jobs: int
-    device: str
+    unique_k: Sequence[int] = (1000, 10000)
+    n_jobs: int = 1
+    device: str = "cpu"
 
 
 @overload
@@ -97,15 +100,17 @@ def get_parser() -> argparse.ArgumentParser:
         "--ks",
         "--unique_k",
         nargs="+",
-        default=[1000, 10000],
+        default=EvalConfig.unique_k,
         type=int,
         help="Number of molecules to calculate uniqueness at."
         "Multiple values are possible. Defaults to "
         "--unique_k 1000 10000",
     )
-    parser.add_argument("--n_jobs", type=int, default=1, help="Number of processes to run metrics")
     parser.add_argument(
-        "--device", type=str, default="cpu", help="GPU device id (`cpu` or `cuda:n`)"
+        "--n_jobs", type=int, default=EvalConfig.n_jobs, help="Number of processes to run metrics"
+    )
+    parser.add_argument(
+        "--device", type=str, default=EvalConfig.device, help="GPU device id (`cpu` or `cuda:n`)"
     )
 
     return parser
@@ -113,5 +118,5 @@ def get_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     parser = get_parser()
-    config: EvalConfig = parser.parse_known_args()[0]  # type: ignore[assignment]
+    config = parser.parse_known_args(namespace=EvalConfig())[0]
     main(config)

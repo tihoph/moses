@@ -11,15 +11,15 @@ import torch
 
 
 class CommonConfig(argparse.Namespace):
-    device: str
-    seed: int
+    device: str = "cuda"
+    seed: int = 0
 
 
 class TrainConfig(CommonConfig):
     train_load: str | None
     val_load: str | None
-    model_save: str
-    save_frequency: int
+    model_save: str = "model.pt"
+    save_frequency: int = 20
     log_file: str
     config_save: str
     vocab_save: str | None
@@ -32,8 +32,8 @@ class SampleConfig(CommonConfig):
     vocab_load: str
     n_samples: int
     gen_save: str
-    n_batch: int
-    max_len: int
+    n_batch: int = 32
+    max_len: int = 100
 
 
 def add_common_arg(parser: _ActionsContainer) -> _ActionsContainer:
@@ -55,10 +55,10 @@ def add_common_arg(parser: _ActionsContainer) -> _ActionsContainer:
     parser.add_argument(
         "--device",
         type=torch_device,
-        default="cuda",
+        default=CommonConfig.device,
         help='Device to run: "cpu" or "cuda:<device number>"',
     )
-    parser.add_argument("--seed", type=int, default=0, help="Seed")
+    parser.add_argument("--seed", type=int, default=CommonConfig.seed, help="Seed")
 
     return parser
 
@@ -73,11 +73,14 @@ def add_train_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--model_save",
         type=str,
         required=True,
-        default="model.pt",
+        default=TrainConfig.model_save,
         help="Where to save the model",
     )
     common_arg.add_argument(
-        "--save_frequency", type=int, default=20, help="How often to save the model"
+        "--save_frequency",
+        type=int,
+        default=TrainConfig.save_frequency,
+        help="How often to save the model",
     )
     common_arg.add_argument("--log_file", type=str, required=False, help="Where to save the log")
     common_arg.add_argument(
@@ -108,8 +111,12 @@ def add_sample_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     common_arg.add_argument(
         "--gen_save", type=str, required=True, help="Where to save the gen molecules"
     )
-    common_arg.add_argument("--n_batch", type=int, default=32, help="Size of batch")
-    common_arg.add_argument("--max_len", type=int, default=100, help="Max of length of SMILES")
+    common_arg.add_argument(
+        "--n_batch", type=int, default=SampleConfig.n_batch, help="Size of batch"
+    )
+    common_arg.add_argument(
+        "--max_len", type=int, default=SampleConfig.max_len, help="Max of length of SMILES"
+    )
 
     return parser
 

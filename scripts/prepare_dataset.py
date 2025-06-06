@@ -21,12 +21,12 @@ logger = logging.getLogger("prepare dataset")
 
 
 class PrepareConfig(argparse.Namespace):
-    output: str
-    seed: int
-    zinc: str
-    n_jobs: int
-    keep_ids: int
-    isomeric: bool
+    output: str = "dataset_v1.csv"
+    seed: int = 0
+    zinc: str = "../data/11_p0.smi.gz"
+    n_jobs: int = 1
+    keep_ids: int = False
+    isomeric: bool = False
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -36,27 +36,29 @@ def get_parser() -> argparse.ArgumentParser:
         "--output",
         "-o",
         type=str,
-        default="dataset_v1.csv",
+        default=PrepareConfig.output,
         help="Path for constructed dataset",
     )
-    parser.add_argument("--seed", type=int, default=0, help="Random state")
+    parser.add_argument("--seed", type=int, default=PrepareConfig.seed, help="Random state")
     parser.add_argument(
         "--zinc",
         type=str,
-        default="../data/11_p0.smi.gz",
+        default=PrepareConfig.zinc,
         help="path to .smi.gz file with ZINC smiles",
     )
-    parser.add_argument("--n_jobs", type=int, default=1, help="number of processes to use")
+    parser.add_argument(
+        "--n_jobs", type=int, default=PrepareConfig.n_jobs, help="number of processes to use"
+    )
     parser.add_argument(
         "--keep_ids",
         action="store_true",
-        default=False,
+        default=PrepareConfig.keep_ids,
         help="Keep ZINC ids in the final csv file",
     )
     parser.add_argument(
         "--isomeric",
         action="store_true",
-        default=False,
+        default=PrepareConfig.isomeric,
         help="Save isomeric SMILES (non-isomeric by default)",
     )
     return parser
@@ -123,5 +125,5 @@ def main(config: PrepareConfig) -> None:
 
 if __name__ == "__main__":
     parser = get_parser()
-    config: PrepareConfig = parser.parse_args()  # type: ignore[assignment]
+    config = parser.parse_args(namespace=PrepareConfig())
     main(config)

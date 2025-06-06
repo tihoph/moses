@@ -12,10 +12,10 @@ if TYPE_CHECKING:
 
 
 class PrintConfig(argparse.Namespace):
-    config: str
-    extension: Literal["html", "latex", "csv"]
-    output: str
-    precision: int
+    config: str = "config.csv"
+    extension: Literal["html", "latex", "csv"] = "csv"
+    output: str = "output.csv"
+    precision: int = 4
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -24,7 +24,7 @@ def get_parser() -> argparse.ArgumentParser:
         "--config",
         "-c",
         type=str,
-        default="config.csv",
+        default=PrintConfig.config,
         help="Path to the config csv with `name` and `path` columns. "
         "`name` is a model name, and "
         "`path` is a path to metrics file`",
@@ -34,17 +34,23 @@ def get_parser() -> argparse.ArgumentParser:
         "-e",
         type=str,
         choices=["html", "latex", "csv"],
-        default="csv",
+        default=PrintConfig.extension,
         help="Format of a table",
     )
     parser.add_argument(
         "--output",
         "-o",
         type=str,
-        default="output.csv",
+        default=PrintConfig.output,
         help="Path to the output table",
     )
-    parser.add_argument("--precision", "-p", type=int, default=4, help="Precision in final table")
+    parser.add_argument(
+        "--precision",
+        "-p",
+        type=int,
+        default=PrintConfig.precision,
+        help="Precision in final table",
+    )
     return parser
 
 
@@ -60,7 +66,7 @@ def format_result(result: Mapping[str, float], fmt: str | None = None) -> str:
 
 if __name__ == "__main__":
     parser = get_parser()
-    config: PrintConfig = parser.parse_known_args()  # type: ignore[assignment]
+    config = parser.parse_known_args(namespace=PrintConfig())[0]
 
     metrics_ls: list[dict[str, float]] = []
     models = pd.read_csv(config.config)

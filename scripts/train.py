@@ -61,6 +61,6 @@ def main(model: str, config: TrainConfig) -> None:
 
 if __name__ == "__main__":
     parser = get_parser()
-    config: TrainConfig = parser.parse_args()  # type: ignore[assignment]
+    config = parser.parse_args(namespace=TrainConfig())
     model = sys.argv[1]
     main(model, config)

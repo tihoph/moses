@@ -8,15 +8,15 @@ from moses.metrics import compute_intermediate_statistics
 
 
 class SplitConfig(argparse.Namespace):
-    dir: str
+    dir: str = "./data"
     no_subset: bool
     train_size: int
     test_size: int
-    seed: int
-    precompute: bool
-    n_jobs: int
-    device: str
-    batch_size: int
+    seed: int = 0
+    precompute: bool = True
+    n_jobs: int = 1
+    device: str = "cpu"
+    batch_size: int = 512
 
 
 def str2bool(v: str) -> bool:
@@ -30,7 +30,9 @@ def str2bool(v: str) -> bool:
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--dir", type=str, default="./data", help="Directory for splitted dataset")
+    parser.add_argument(
+        "--dir", type=str, default=SplitConfig.dir, help="Directory for splitted dataset"
+    )
     parser.add_argument(
         "--no_subset",
         action="store_true",
@@ -38,17 +40,20 @@ def get_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--train_size", type=int, help="Size of training dataset")
     parser.add_argument("--test_size", type=int, help="Size of testing dataset")
-    parser.add_argument("--seed", type=int, default=0, help="Random state")
+    parser.add_argument("--seed", type=int, default=SplitConfig.seed, help="Random state")
     parser.add_argument(
         "--precompute",
         type=str2bool,
-        default=True,
+        default=SplitConfig.precompute,
         help="Precompute intermediate statistics",
     )
-    parser.add_argument("--n_jobs", type=int, default=1, help="Number of workers")
-    parser.add_argument("--device", type=str, default="cpu", help="GPU device id")
+    parser.add_argument("--n_jobs", type=int, default=SplitConfig.n_jobs, help="Number of workers")
+    parser.add_argument("--device", type=str, default=SplitConfig.device, help="GPU device id")
     parser.add_argument(
-        "--batch_size", type=int, default=512, help="Batch size for FCD calculation"
+        "--batch_size",
+        type=int,
+        default=SplitConfig.batch_size,
+        help="Batch size for FCD calculation",
     )
     return parser
 
@@ -106,5 +111,5 @@ def main(config: SplitConfig) -> None:
 
 if __name__ == "__main__":
     parser = get_parser()
-    config: SplitConfig = parser.parse_args()  # type: ignore[assignment]
+    config = parser.parse_args(namespace=SplitConfig())
     main(config)

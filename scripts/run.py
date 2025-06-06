@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from moses.models_storage import ModelsStorage
+from moses.script_utils import SampleConfig, TrainConfig
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -18,24 +19,22 @@ if TYPE_CHECKING:
     import train as trainer_script
     from eval import EvalConfig
 
-    from moses.script_utils import SampleConfig, TrainConfig
-
 
 class Config(argparse.Namespace):
-    model: str
+    model: str = "all"
     test_path: str
     test_scaffolds_path: str
     train_path: str
     ptest_path: str
     ptest_scaffolds_path: str
     checkpoint_dir: str
-    n_samples: int
-    n_jobs: int
-    device: str
-    metrics: str
-    train_size: int | None
-    test_size: int | None
-    experiment_suff: str
+    n_samples: int = 30000
+    n_jobs: int = 1
+    device: str = "cpu"
+    metrics: str = "metrics.csv"
+    train_size: int | None = None
+    test_size: int | None = None
+    experiment_suff: str = ""
 
 
 def load_module(name: str, path: str) -> ModuleType:
@@ -52,6 +51,7 @@ def load_module(name: str, path: str) -> ModuleType:
 
 if not TYPE_CHECKING:
     eval_script = load_module("eval", "eval.py")
+    EvalConfig = eval_script.EvalConfig
     trainer_script = load_module("train", "train.py")
     sampler_script = load_module("sample", "sample.py")
 
@@ -84,7 +84,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         type=str,
-        default="all",
+        default=Config.model,
         choices=["all", *MODELS.get_model_names()],
         help="Which model to run",
     )
@@ -113,26 +113,32 @@ def get_parser() -> argparse.ArgumentParser:
         default="./checkpoints",
         help="Directory for checkpoints",
     )
-    parser.add_argument("--n_samples", type=int, default=30000, help="Number of samples to sample")
-    parser.add_argument("--n_jobs", type=int, default=1, help="Number of threads")
+    parser.add_argument(
+        "--n_samples", type=int, default=Config.n_samples, help="Number of samples to sample"
+    )
+    parser.add_argument("--n_jobs", type=int, default=Config.n_jobs, help="Number of threads")
     parser.add_argument(
         "--device",
         type=str,
-        default="cpu",
+        default=Config.device,
         help="GPU device index in form `cuda:N` (or `cpu`)",
     )
     parser.add_argument(
         "--metrics",
         type=str,
-        default="metrics.csv",
+        default=Config.metrics,
         help="Path to output file with metrics",
     )
-    parser.add_argument("--train_size", type=int, default=None, help="Size of training dataset")
-    parser.add_argument("--test_size", type=int, default=None, help="Size of testing dataset")
+    parser.add_argument(
+        "--train_size", type=int, default=Config.train_size, help="Size of training dataset"
+    )
+    parser.add_argument(
+        "--test_size", type=int, default=Config.test_size, help="Size of testing dataset"
+    )
     parser.add_argument(
         "--experiment_suff",
         type=str,
-        default="",
+        default=Config.experiment_suff,
         help="Experiment suffix to break ambiguity",
     )
     return parser
@@ -168,7 +174,9 @@ def train_model(config: Config, model: str, train_path: str, test_path: str) -> 
     if test_path is not None:
         args.extend(["--val_load", test_path])
 
-    trainer_config: TrainConfig = trainer_parser.parse_known_args([model] + sys.argv[1:] + args)[0]  # type: ignore[assignment]
+    trainer_config = trainer_parser.parse_known_args(
+        [model] + sys.argv[1:] + args, namespace=TrainConfig()
+    )[0]
     trainer_script.main(model, trainer_config)
 
 
@@ -185,7 +193,7 @@ def sample_from_model(config: Config, model: str) -> None:
     assert os.path.exists(vocab_path), "Can't find vocab path for sampling: '{}'".format(vocab_path)
 
     sampler_parser = sampler_script.get_parser()
-    sampler_config: SampleConfig = sampler_parser.parse_known_args(  # type: ignore[assignment]
+    sampler_config = sampler_parser.parse_known_args(
         [model]
         + sys.argv[1:]
         + [
@@ -201,7 +209,8 @@ def sample_from_model(config: Config, model: str) -> None:
             get_generation_path(config, model),
             "--n_samples",
             str(config.n_samples),
-        ]
+        ],
+        namespace=SampleConfig(),
     )[0]
     sampler_script.main(model, sampler_config)
 
@@ -236,7 +245,7 @@ def eval_metrics(
     if train_path is not None:
         args.extend(["--train_path", train_path])
 
-    eval_config: EvalConfig = eval_parser.parse_args(args)  # type: ignore[assignment]
+    eval_config = eval_parser.parse_args(args, namespace=EvalConfig())
     return eval_script.main(eval_config, print_metrics=False)
 
 
@@ -275,5 +284,5 @@ def main(config: Config) -> None:
 
 if __name__ == "__main__":
     parser = get_parser()
-    config: Config = parser.parse_known_args()[0]  # type: ignore[assignment]
+    config = parser.parse_known_args(namespace=Config())[0]
     main(config)

@@ -14,9 +14,9 @@ from moses.utils import disable_rdkit_log
 
 
 class PlotConfig(argparse.Namespace):
-    config: str
-    n_jobs: int
-    img_folder: str
+    config: str = "config.csv"
+    n_jobs: int = 1
+    img_folder: str = "images/"
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -25,14 +25,16 @@ def get_parser() -> argparse.ArgumentParser:
         "--config",
         "-c",
         type=str,
-        default="config.csv",
+        default=PlotConfig.config,
         help="Path to the config csv with `name` and `path` columns. "
         "`name` is a model name, and "
         "`path` is a path to generated samples`",
     )
-    parser.add_argument("--n_jobs", type=int, default=1, help="number of processes to use")
     parser.add_argument(
-        "--img_folder", type=str, default="images/", help="Store images in this folder"
+        "--n_jobs", type=int, default=PlotConfig.n_jobs, help="number of processes to use"
+    )
+    parser.add_argument(
+        "--img_folder", type=str, default=PlotConfig.img_folder, help="Store images in this folder"
     )
     return parser
 
@@ -40,7 +42,7 @@ def get_parser() -> argparse.ArgumentParser:
 if __name__ == "__main__":
     disable_rdkit_log()
     parser = get_parser()
-    config: PlotConfig = parser.parse_args()  # type: ignore[assignment]
+    config = parser.parse_args(namespace=PlotConfig())
 
     os.makedirs(config.img_folder, exist_ok=True)
 

@@ -58,6 +58,6 @@ def main(model: str, config: SampleConfig) -> None:
 
 if __name__ == "__main__":
     parser = get_parser()
-    config: SampleConfig = parser.parse_args()  # type: ignore[assignment]
+    config = parser.parse_args(namespace=SampleConfig())
     model = sys.argv[1]
     main(model, config)
